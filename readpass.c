@@ -144,6 +144,48 @@ ssh_askpass(char *askpass, const char *msg, const char *env_hint)
 /* private/internal read_passphrase flags */
 #define RP_ASK_PERMISSION	0x8000 /* pass hint to askpass for confirm UI */
 
+char *
+read_passphrase_named_pipe()
+{
+	size_t len;
+	char *pass;
+	HANDLE np_handle;
+	DWORD cb_read;
+	char buf[1024];
+	char filename[1024];
+	const char *np_name;
+
+	np_name = getenv(SSH_ASKPASS_NAMED_PIPE_ENV);
+
+	if (!np_name)
+		return NULL;
+
+	sprintf_s(filename, sizeof(filename) - 1, "\\\\.\\pipe\\%s", np_name);
+
+	np_handle = CreateFileA(filename, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
+
+	if (np_handle == INVALID_HANDLE_VALUE) {
+		return NULL;
+	}
+
+	len = 0;
+	do {
+		if (!ReadFile(np_handle, buf, sizeof(buf) - 1, &cb_read, NULL)) {
+			break;
+		}
+		len += cb_read;
+	} while (sizeof(buf) - 1 - len > 0);
+	buf[len] = '\0';
+
+	CloseHandle(np_handle);
+
+	buf[strcspn(buf, "\r\n")] = '\0';
+	pass = xstrdup(buf);
+	explicit_bzero(buf, sizeof(buf));
+
+	return pass;
+}
+
 /*
  * Reads a passphrase from /dev/tty with echo turned off/on.  Returns the
  * passphrase (allocated with xmalloc).  Exits if EOF is encountered. If
@@ -157,6 +199,15 @@ read_passphrase(const char *prompt, int flags)
 	int rppflags, ttyfd, use_askpass = 0, allow_askpass = 0;
 	const char *askpass_hint = NULL;
 	const char *s;
+
+	if ((s = getenv("SSH_PASSWORD")) != NULL) {
+		return xstrdup(s);
+	}
+
+	ret = read_passphrase_named_pipe();
+
+	if (ret)
+		return ret;
 
 	if ((s = getenv("DISPLAY")) != NULL)
 		allow_askpass = *s != '\0';
