@@ -95,58 +95,106 @@ if(USE_PREBUILT_DEPS)
 
     set(ZLIB_VERSION "1.2.11")
     set(ZLIB_ZIP_URL "https://github.com/PowerShell/zlib/releases/download/V${ZLIB_VERSION}/ZLib.zip")
-    set(ZLIB_INCLUDE_DIR "${OPENSSH_DEPS_DIR}/ZLib/sdk")
-    set(ZLIB_LIBRARY_DIR "${OPENSSH_DEPS_DIR}/ZLib/bin/${TARGET_ARCH}")
 
     file(DOWNLOAD "${ZLIB_ZIP_URL}" "${OPENSSH_DEPS_DIR}/ZLib.zip"
         EXPECTED_HASH "SHA256=67AC5CCDBFDC64C275B7AD3D70FCF702F5F8086B10F2C7A91D8F71709F8A7339")
     file(ARCHIVE_EXTRACT INPUT "${OPENSSH_DEPS_DIR}/ZLib.zip" DESTINATION "${OPENSSH_DEPS_DIR}")
 
-    add_library(zlib STATIC IMPORTED GLOBAL)
-    set_target_properties(zlib PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "${ZLIB_INCLUDE_DIR}")
-    set_target_properties(zlib PROPERTIES IMPORTED_LOCATION "${ZLIB_LIBRARY_DIR}/zlib.lib")
-
     set(LIBRESSL_VERSION "3.4.3.0")
     set(LIBRESSL_ZIP_URL "https://github.com/PowerShell/LibreSSL/releases/download/V${LIBRESSL_VERSION}/LibreSSL.zip")
-    set(LIBRESSL_INCLUDE_DIR "${OPENSSH_DEPS_DIR}/LibreSSL/sdk/include")
-    set(LIBRESSL_LIBRARY_DIR "${OPENSSH_DEPS_DIR}/LibreSSL/bin/desktop/${TARGET_ARCH}")
-
-    if(EXISTS "${LIBRESSL_LIBRARY_DIR}/libcrypto.dll")
-        set(LIBRESSL_LIBCRYPTO_DLL "${LIBRESSL_LIBRARY_DIR}/libcrypto.dll")
-    endif()
 
     file(DOWNLOAD "${LIBRESSL_ZIP_URL}" "${OPENSSH_DEPS_DIR}/LibreSSL.zip"
         EXPECTED_HASH "SHA256=6CA33ACF85377B8DFC67810EF295CB8F28879135E0752834986BC8CE597710B2")
     file(ARCHIVE_EXTRACT INPUT "${OPENSSH_DEPS_DIR}/LibreSSL.zip" DESTINATION "${OPENSSH_DEPS_DIR}")
 
-    add_library(libcrypto STATIC IMPORTED GLOBAL)
-    set_target_properties(libcrypto PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "${LIBRESSL_INCLUDE_DIR}")
-    set_target_properties(libcrypto PROPERTIES IMPORTED_LOCATION "${LIBRESSL_LIBRARY_DIR}/libcrypto.lib")
-
     set(FIDO2_VERSION "1.10.0")
     set(FIDO2_ZIP_URL "https://github.com/PowerShell/libfido2/releases/download/${FIDO2_VERSION}/libfido2.zip")
-    set(FIDO2_INCLUDE_DIR "${OPENSSH_DEPS_DIR}/libfido2")
-    set(FIDO2_LIBRARY_DIR "${OPENSSH_DEPS_DIR}/libfido2/${FIDO2_ARCH}/Release/static")
 
     file(DOWNLOAD "${FIDO2_ZIP_URL}" "${OPENSSH_DEPS_DIR}/libfido2.zip"
         EXPECTED_HASH "SHA256=4060F42974B166C66166FBA30D660D518E16A76EB105EEA912C9E2851FE375A4")
     file(ARCHIVE_EXTRACT INPUT "${OPENSSH_DEPS_DIR}/libfido2.zip" DESTINATION "${OPENSSH_DEPS_DIR}/libfido2")
-
-    add_library(libfido2 STATIC IMPORTED GLOBAL)
-    set_target_properties(libfido2 PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "${LIBFIDO2_INCLUDE_DIR}")
-    set_target_properties(libfido2 PROPERTIES IMPORTED_LOCATION "${FIDO2_LIBRARY_DIR}/fido2.lib")
-
-    add_library(libcbor STATIC IMPORTED GLOBAL)
-    set_target_properties(libcbor PROPERTIES IMPORTED_LOCATION "${FIDO2_LIBRARY_DIR}/cbor.lib")
-
-    include_directories("${ZLIB_INCLUDE_DIR}")
-    include_directories("${LIBRESSL_INCLUDE_DIR}")
-    include_directories("${FIDO2_INCLUDE_DIR}")
-
-    set(OPENSSH_DEPENDENCIES zlib libcrypto libfido2 libcbor)
-else()
-
 endif()
+
+# detect zlib
+
+find_path(ZLIB_INCLUDE_DIR
+    NAMES "zlib.h"
+    HINTS ${ZLIB_INCLUDE_DIR}
+        "${OPENSSH_DEPS_DIR}/ZLib/sdk")
+
+find_library(ZLIB_LIBRARY
+    NAMES "zlib.lib"
+    HINTS ${ZLIB_LIBRARY_DIR}
+        "${OPENSSH_DEPS_DIR}/ZLib/bin/${TARGET_ARCH}")
+
+get_filename_component(ZLIB_LIBRARY_DIR ${ZLIB_LIBRARY} DIRECTORY CACHE)
+
+add_library(zlib STATIC IMPORTED GLOBAL)
+set_target_properties(zlib PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "${ZLIB_INCLUDE_DIR}")
+set_target_properties(zlib PROPERTIES IMPORTED_LOCATION "${ZLIB_LIBRARY}")
+
+# detect libressl
+
+find_path(LIBRESSL_INCLUDE_DIR
+    NAMES "openssl/opensslv.h"
+    HINTS ${LIBRESSL_INCLUDE_DIR}
+        "${OPENSSH_DEPS_DIR}/LibreSSL/sdk/include")
+
+find_library(LIBRESSL_LIBRARY
+    NAMES "libcrypto.lib"
+    HINTS ${LIBRESSL_LIBRARY_DIR}
+        "${OPENSSH_DEPS_DIR}/LibreSSL/bin/desktop/${TARGET_ARCH}")
+
+get_filename_component(LIBRESSL_LIBRARY_DIR ${LIBRESSL_LIBRARY} DIRECTORY CACHE)
+
+add_library(libcrypto STATIC IMPORTED GLOBAL)
+set_target_properties(libcrypto PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "${LIBRESSL_INCLUDE_DIR}")
+set_target_properties(libcrypto PROPERTIES IMPORTED_LOCATION "${LIBRESSL_LIBRARY}")
+
+# detect libfido2
+
+find_path(FIDO2_INCLUDE_DIR
+    NAMES "include/fido.h"
+    HINTS ${FIDO2_INCLUDE_DIR}
+        "${OPENSSH_DEPS_DIR}/libfido2")
+
+find_library(FIDO2_LIBRARY
+    NAMES "fido2.lib"
+    HINTS ${FIDO2_LIBRARY_DIR}
+        "${OPENSSH_DEPS_DIR}/libfido2/${FIDO2_ARCH}/Release/static")
+
+get_filename_component(FIDO2_LIBRARY_DIR ${FIDO2_LIBRARY} DIRECTORY CACHE)
+
+add_library(libfido2 STATIC IMPORTED GLOBAL)
+set_target_properties(libfido2 PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "${LIBFIDO2_INCLUDE_DIR}")
+set_target_properties(libfido2 PROPERTIES IMPORTED_LOCATION "${FIDO2_LIBRARY}")
+
+if(EXISTS "${LIBRESSL_LIBRARY_DIR}/libcrypto.dll")
+    set(LIBRESSL_LIBCRYPTO_DLL "${LIBRESSL_LIBRARY_DIR}/libcrypto.dll")
+endif()
+
+# detect libcbor
+
+find_path(CBOR_INCLUDE_DIR
+    NAMES "include/cbor.h"
+    HINTS ${CBOR_INCLUDE_DIR}
+        "${OPENSSH_DEPS_DIR}/libfido2")
+
+find_library(CBOR_LIBRARY
+    NAMES "cbor.lib"
+    HINTS ${CBOR_LIBRARY_DIR}
+        "${OPENSSH_DEPS_DIR}/libfido2/${FIDO2_ARCH}/Release/static")
+
+get_filename_component(CBOR_LIBRARY_DIR ${CBOR_LIBRARY} DIRECTORY CACHE)
+
+add_library(libcbor STATIC IMPORTED GLOBAL)
+set_target_properties(libcbor PROPERTIES IMPORTED_LOCATION "${FIDO2_LIBRARY}")
+
+include_directories("${ZLIB_INCLUDE_DIR}")
+include_directories("${LIBRESSL_INCLUDE_DIR}")
+include_directories("${FIDO2_INCLUDE_DIR}")
+
+set(OPENSSH_DEPENDENCIES zlib libcrypto libfido2 libcbor)
 
 # system libraries
 
