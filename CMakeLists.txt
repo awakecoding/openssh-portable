@@ -110,7 +110,10 @@ if(USE_PREBUILT_DEPS)
     set(LIBRESSL_ZIP_URL "https://github.com/PowerShell/LibreSSL/releases/download/V${LIBRESSL_VERSION}/LibreSSL.zip")
     set(LIBRESSL_INCLUDE_DIR "${OPENSSH_DEPS_DIR}/LibreSSL/sdk/include")
     set(LIBRESSL_LIBRARY_DIR "${OPENSSH_DEPS_DIR}/LibreSSL/bin/desktop/${TARGET_ARCH}")
-    set(LIBRESSL_LIBCRYPTO_DLL "${LIBRESSL_LIBRARY_DIR}/libcrypto.dll")
+
+    if(EXISTS "${LIBRESSL_LIBRARY_DIR}/libcrypto.dll")
+        set(LIBRESSL_LIBCRYPTO_DLL "${LIBRESSL_LIBRARY_DIR}/libcrypto.dll")
+    endif()
 
     file(DOWNLOAD "${LIBRESSL_ZIP_URL}" "${OPENSSH_DEPS_DIR}/LibreSSL.zip"
         EXPECTED_HASH "SHA256=6CA33ACF85377B8DFC67810EF295CB8F28879135E0752834986BC8CE597710B2")
@@ -1052,3 +1055,24 @@ if(WITH_UNIT_TESTS)
         add_test(NAME ${OPENSSH_TEST_TARGET} COMMAND ${OPENSSH_TEST_TARGET})
     endforeach()
 endif()
+
+# installation
+
+set(OPENSSH_INSTALL_TARGETS
+    "ssh"
+    "sshd"
+    "scp"
+    "sftp"
+    "sftp-server"
+    "ssh-add"
+    "ssh-agent"
+    "ssh-keygen"
+    "ssh-keyscan"
+    "ssh-shellhost"
+    "ssh-sk-helper"
+    "ssh-pkcs11-helper")
+
+install(TARGETS ${OPENSSH_INSTALL_TARGETS}
+    ARCHIVE DESTINATION lib
+    LIBRARY DESTINATION lib
+    RUNTIME DESTINATION bin)
