@@ -49,6 +49,10 @@
 # include <ifaddrs.h>
 #endif
 
+#ifdef WINDOWS
+#include "sshTelemetry.h"
+#endif
+
 #include "xmalloc.h"
 #include "hostfile.h"
 #include "ssh.h"
@@ -213,6 +217,32 @@ ssh_proxy_connect(struct ssh *ssh, const char *host, const char *host_arg,
 	    host, host_arg, port);
 	debug("Executing proxy command: %.500s", command_string);
 
+
+#ifdef FORK_NOT_SUPPORTED
+	{
+		posix_spawn_file_actions_t actions;
+		char* spawn_argv[2];
+		/* 
+		 * expand_proxy_command prefixes cmdline with "exec " 
+		 */
+		spawn_argv[0] = command_string + 5;
+		spawn_argv[1] = NULL;
+		pid = -1;
+
+		/* disable inheritance */
+		fcntl(pin[1], F_SETFD, FD_CLOEXEC);
+		fcntl(pout[0], F_SETFD, FD_CLOEXEC);
+
+		if (posix_spawn_file_actions_init(&actions) != 0 ||
+			posix_spawn_file_actions_adddup2(&actions, pin[0], STDIN_FILENO) != 0 ||
+			posix_spawn_file_actions_adddup2(&actions, pout[1], STDOUT_FILENO) != 0)
+			fatal("posix_spawn initialization failed");
+		else if (posix_spawnp(&pid, spawn_argv[0], &actions, NULL, spawn_argv, NULL) != 0)
+			fatal("posix_spawnp: %s", strerror(errno));
+
+		posix_spawn_file_actions_destroy(&actions);
+	}
+#else 
 	/* Fork and execute the proxy command. */
 	if ((pid = fork()) == 0) {
 		char *argv[10];
@@ -252,6 +282,7 @@ ssh_proxy_connect(struct ssh *ssh, const char *host, const char *host_arg,
 		perror(argv[0]);
 		exit(1);
 	}
+#endif
 	/* Parent. */
 	if (pid == -1)
 		fatal("fork failed: %.100s", strerror(errno));
@@ -516,10 +547,16 @@ ssh_connect_direct(struct ssh *ssh, const char *host, struct addrinfo *aitop,
 	if (sock == -1) {
 		error("ssh: connect to host %s port %s: %s",
 		    host, strport, errno == 0 ? "failure" : strerror(errno));
+#ifdef WINDOWS
+		send_ssh_connection_telemetry(strerror(errno), strport);
+#endif
 		return -1;
 	}
 
 	debug("Connection established.");
+#ifdef WINDOWS
+	send_ssh_connection_telemetry("Connection established.", strport);
+#endif
 
 	/* Set SO_KEEPALIVE if requested. */
 	if (want_keepalive &&
@@ -1648,6 +1685,10 @@ ssh_local_cmd(const char *args)
 	if (!options.permit_local_command ||
 	    args == NULL || !*args)
 		return (1);
+
+#ifdef WINDOWS
+	return system(args);
+#endif
 
 	if ((shell = getenv("SHELL")) == NULL || *shell == '\0')
 		shell = _PATH_BSHELL;

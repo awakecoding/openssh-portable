@@ -52,6 +52,7 @@ typedef void EditLine;
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+#include <fcntl.h>
 
 #ifdef HAVE_UTIL_H
 # include <util.h>
@@ -68,6 +69,9 @@ typedef void EditLine;
 #include "sshbuf.h"
 #include "sftp-common.h"
 #include "sftp-client.h"
+#ifdef WINDOWS
+#include "misc_internal.h"
+#endif // WINDOWS
 
 /* File to read commands from */
 FILE* infile;
@@ -318,6 +322,38 @@ help(void)
 static void
 local_do_shell(const char *args)
 {
+  #ifdef WINDOWS
+	/* execute via system call in Windows*/	
+	if (!*args) {
+		char cmd_path[PATH_MAX] = { 0, };
+		if (!GetSystemDirectory(cmd_path, sizeof(cmd_path)))
+			fatal("GetSystemDirectory failed");
+
+		strcat_s(cmd_path, PATH_MAX, "\\cmd.exe");
+		args = cmd_path;
+	} else {
+		if (is_bash_test_env()) {
+			char *cygwin_path_prefix_start = NULL;
+			if (cygwin_path_prefix_start = strstr(args, CYGWIN_PATH_PREFIX)) {
+				int len = strlen(cygwin_path_prefix_start) + 1;
+				char *tmp = malloc(len);
+				memset(tmp, 0, len);
+
+				bash_to_win_path(cygwin_path_prefix_start, tmp, len);
+				strcpy_s(cygwin_path_prefix_start, len, tmp); /* override the original string */
+
+				if (tmp)
+					free(tmp);
+			}
+		}
+
+		convertToBackslash((char *) args);
+	}
+	
+	wchar_t* path_utf16 = utf8_to_utf16(args);
+	_wsystem(path_utf16); // execute the shell or cmd given
+	free(path_utf16);
+  #else   /* !WINDOWS */
 	int status;
 	char *shell;
 	pid_t pid;
@@ -351,6 +387,7 @@ local_do_shell(const char *args)
 		error("Shell exited abnormally");
 	else if (WEXITSTATUS(status))
 		error("Shell exited with status %d", WEXITSTATUS(status));
+ #endif   /* !WINDOWS */
 }
 
 static void
@@ -792,6 +829,7 @@ sdirent_comp(const void *aa, const void *bb)
 		return (rmul * NCMP(a->a.size, b->a.size));
 
 	fatal("Unknown ls sort type");
+	return 0;
 }
 
 /* sftp ls.1 replacement for directories */
@@ -1502,6 +1540,13 @@ parse_dispatch_command(struct sftp_conn *conn, const char *cmd, char **pwd,
 	glob_t g;
 
 	path1 = path2 = NULL;
+#ifdef WINDOWS
+	/* 
+	 * convert '\\' to '/' in Windows styled paths. 
+	 * else they get treated as escape sequence in makeargv 
+	 */
+	convertToForwardslash((char *)cmd);
+#endif
 	cmdnum = parse_args(&cmd, &ignore_errors, &disable_echo, &aflag, &fflag,
 	    &hflag, &iflag, &lflag, &pflag, &rflag, &sflag, &n_arg,
 	    &path1, &path2);
@@ -2203,9 +2248,13 @@ interactive_loop(struct sftp_conn *conn, char *file1, char *file2)
 	interactive = !batchmode && isatty(STDIN_FILENO);
 	err = 0;
 	for (;;) {
+#ifdef WINDOWS
+	void (*handler)(int);
+	handler = interactive ? read_interrupt : killchild;
+	ssh_signal(SIGINT, handler); 
+#else
 		struct sigaction sa;
 
-		interrupted = 0;
 		memset(&sa, 0, sizeof(sa));
 		sa.sa_handler = interactive ? read_interrupt : killchild;
 		if (sigaction(SIGINT, &sa, NULL) == -1) {
@@ -2213,6 +2262,8 @@ interactive_loop(struct sftp_conn *conn, char *file1, char *file2)
 			    strerror(errno));
 			break;
 		}
+#endif
+		interrupted = 0;
 		if (el == NULL) {
 			if (interactive)
 				printf("sftp> ");
@@ -2282,6 +2333,10 @@ connect_to_server(char *path, char **args, int *in, int *out)
 	*out = pout[1];
 	c_in = pout[0];
 	c_out = pin[1];
+	fcntl(pout[0], F_SETFD, FD_CLOEXEC);
+	fcntl(pout[1], F_SETFD, FD_CLOEXEC);
+	fcntl(pin[0], F_SETFD, FD_CLOEXEC);
+	fcntl(pin[1], F_SETFD, FD_CLOEXEC);
 #else /* USE_PIPES */
 	int inout[2];
 
@@ -2289,8 +2344,26 @@ connect_to_server(char *path, char **args, int *in, int *out)
 		fatal("socketpair: %s", strerror(errno));
 	*in = *out = inout[0];
 	c_in = c_out = inout[1];
+	fcntl(inout[0], F_SETFD, FD_CLOEXEC);
+	fcntl(inout[1], F_SETFD, FD_CLOEXEC);
 #endif /* USE_PIPES */
 
+
+#ifdef FORK_NOT_SUPPORTED
+	{
+		posix_spawn_file_actions_t actions;
+		sshpid = -1;
+
+		if (posix_spawn_file_actions_init(&actions) != 0 ||
+		    posix_spawn_file_actions_adddup2(&actions, c_in, STDIN_FILENO) != 0 ||
+		    posix_spawn_file_actions_adddup2(&actions, c_out, STDOUT_FILENO) != 0 ) 
+			fatal("posix_spawn initialization failed");
+		else if (posix_spawn((pid_t*)&sshpid, path, &actions, NULL, args, NULL) != 0) 
+			fatal("posix_spawn: %s", strerror(errno));
+		
+		posix_spawn_file_actions_destroy(&actions);
+	}
+#else 
 	if ((sshpid = fork()) == -1)
 		fatal("fork: %s", strerror(errno));
 	else if (sshpid == 0) {
@@ -2317,7 +2390,7 @@ connect_to_server(char *path, char **args, int *in, int *out)
 		fprintf(stderr, "exec: %s: %s\n", path, strerror(errno));
 		_exit(1);
 	}
-
+#endif
 	ssh_signal(SIGTERM, killchild);
 	ssh_signal(SIGINT, killchild);
 	ssh_signal(SIGHUP, killchild);
@@ -2521,8 +2594,13 @@ main(int argc, char **argv)
 			host = cleanhostname(host);
 			break;
 		}
-		file2 = *(argv + 1);
 
+#ifdef WINDOWS
+		if (argc == (optind + 2))
+			file2 = *(argv + 1);
+#else
+		file2 = *(argv + 1);
+#endif
 		if (!*host) {
 			fprintf(stderr, "Missing hostname\n");
 			usage();
@@ -2547,7 +2625,12 @@ main(int argc, char **argv)
 		connect_to_server(ssh_program, args.list, &in, &out);
 	} else {
 		args.list = NULL;
+
+#ifdef WINDOWS
+		addargs(&args, "sftp-server.exe");
+#else
 		addargs(&args, "sftp-server");
+#endif // WINDOWS
 
 		connect_to_server(sftp_direct, args.list, &in, &out);
 	}

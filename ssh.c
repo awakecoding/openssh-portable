@@ -566,9 +566,20 @@ process_config_files(const char *host_name, struct passwd *pw, int final_pass,
 			    (final_pass ? SSHCONF_FINAL : 0), want_final_pass);
 
 		/* Read systemwide configuration file after user config. */
+#ifdef WINDOWS
+		/*
+		 *	Windows doesn't have systemwide configuration folder created by default.
+		 *	If a non-admin user creates the systemwide folder then systemwide ssh_config inherits parent folder permissions i.e., non-admin user have write permissions.
+		 *	This is not desirable. For windows, We make sure the systemwide sshd_config file is not editable by non-admin users.
+		 */
+		(void)read_config_file(_PATH_HOST_CONFIG_FILE, pw,
+			host, host_name, &options, SSHCONF_CHECKPERM |
+			(final_pass ? SSHCONF_FINAL : 0), want_final_pass);
+#else
 		(void)read_config_file(_PATH_HOST_CONFIG_FILE, pw,
 		    host, host_name, &options,
 		    final_pass ? SSHCONF_FINAL : 0, want_final_pass);
+#endif
 	}
 }
 
@@ -1247,12 +1258,14 @@ main(int ac, char **av)
 		    strcmp(options.user, jumpuser) == 0)
 			fatal("jumphost loop via %s", options.jump_host);
 
+#ifndef WINDOWS /* TODO - implement "acesss" in posix layer and enable this */
 		/*
 		 * Try to use SSH indicated by argv[0], but fall back to
 		 * "ssh" if it appears unavailable.
 		 */
 		if (strchr(argv0, '/') != NULL && access(argv0, X_OK) != 0)
 			sshbin = "ssh";
+#endif
 
 		/* Consistency check */
 		if (options.proxy_command != NULL)
@@ -1261,7 +1274,11 @@ main(int ac, char **av)
 		options.proxy_use_fdpass = 0;
 		snprintf(port_s, sizeof(port_s), "%d", options.jump_port);
 		xasprintf(&options.proxy_command,
+#ifdef WINDOWS
+		    "\"%s\" %s%s%s%s%s%s%s%s%s%.*s -W \"[%%h]:%%p\" %s",
+#else
 		    "%s%s%s%s%s%s%s%s%s%s%.*s -W '[%%h]:%%p' %s",
+#endif
 		    sshbin,
 		    /* Optional "-l user" argument if jump_user set */
 		    options.jump_user == NULL ? "" : " -l ",

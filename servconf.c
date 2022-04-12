@@ -733,6 +733,7 @@ derelativise_path(const char *path)
 	if (strcasecmp(path, "none") == 0)
 		return xstrdup("none");
 	expanded = tilde_expand_filename(path, getuid());
+
 	if (path_absolute(expanded))
 		return expanded;
 	if (getcwd(cwd, sizeof(cwd)) == NULL)
@@ -1076,6 +1077,7 @@ match_cfg_line(char **condition, int line, struct connection_info *ci)
 			}
 			if (ci->user == NULL)
 				match_test_missing_fatal("User", "user");
+
 			if (match_usergroup_pattern_list(ci->user, arg) != 1)
 				result = 0;
 			else
@@ -2319,7 +2321,11 @@ process_server_config_line_depth(ServerOptions *options, char *line,
 		charptr = &options->authorized_keys_command;
  parse_command:
 		len = strspn(str, WHITESPACE);
+#ifdef WINDOWS
+		if (!path_absolute(str + len) && strcasecmp(str + len, "none") != 0) {
+#else
 		if (str[len] != '/' && strcasecmp(str + len, "none") != 0) {
+#endif
 			fatal("%.200s line %d: %s must be an absolute path",
 			    filename, linenum, keyword);
 		}
@@ -2704,6 +2710,61 @@ parse_server_config(ServerOptions *options, const char *filename,
 	parse_server_config_depth(options, filename, conf, includes,
 	    connectinfo, (connectinfo ? SSHCFG_MATCH_ONLY : 0), &active, 0);
 	process_queued_listen_addrs(options);
+
+#ifdef WINDOWS	
+	/* TODO - Refactor this into a platform specific post-read config processing routine.
+	 * TODO - support all forms of username, groupname.
+	 *   a) domain\groupname
+	 *   b) domain\groupname@hostip
+	 *   c) full_domain_name\groupname
+	 *   d) full_domain_name\groupname@hostip
+	 *   e) user@domain
+	 *   f) domain\user
+	 *   g) fulldomain\user
+	 *   h) user@domain@hostip
+	 */
+	/* convert the users, user groups to lower case */
+	char *tmp = NULL;
+	for (int i = 0; i < options->num_allow_users; i++) {
+		/* For domain user we need special handling.
+		* We support both "domain\user" and "domain/user" formats.
+		*/
+		if (tmp = strstr(options->allow_users[i], "/"))
+			*tmp = '\\';
+
+		lowercase(options->allow_users[i]);
+	}
+
+	for (int i = 0; i < options->num_deny_users; i++) {
+		/* For domain user we need special handling.
+		 * We support both "domain\user" and "domain/user" formats.
+		 */
+		if (tmp = strstr(options->deny_users[i], "/"))
+			*tmp = '\\';
+
+		lowercase(options->deny_users[i]);
+	}
+
+	for (int i = 0; i < options->num_allow_groups; i++) {
+		/* For domain group we need special handling.
+		* We support both "domain\group" and "domain/group" formats.
+		*/
+		if (tmp = strstr(options->allow_groups[i], "/"))
+			*tmp = '\\';
+
+		lowercase(options->allow_groups[i]);
+	}
+
+	for (int i = 0; i < options->num_deny_groups; i++) {
+		/* For domain group we need special handling.
+		* We support both "domain\group" and "domain/group" formats.
+		*/
+		if (tmp = strstr(options->deny_groups[i], "/"))
+			*tmp = '\\';
+
+		lowercase(options->deny_groups[i]);
+	}
+#endif // WINDOWS
 }
 
 static const char *

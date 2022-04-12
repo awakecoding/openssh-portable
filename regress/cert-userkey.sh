@@ -6,8 +6,13 @@ tid="certified user keys"
 rm -f $OBJ/authorized_keys_$USER $OBJ/user_ca_key* $OBJ/cert_user_key*
 cp $OBJ/sshd_proxy $OBJ/sshd_proxy_bak
 cp $OBJ/ssh_proxy $OBJ/ssh_proxy_bak
+if [ "$os" == "windows" ]; then
+	# remove CR (carriage return)
+	PLAIN_TYPES=`$SSH -Q key-plain | sed 's/\r$//' | maybe_filter_sk | sed 's/^ssh-dss/ssh-dsa/;s/^ssh-//'`
+else
+	PLAIN_TYPES=`$SSH -Q key-plain | maybe_filter_sk | sed 's/^ssh-dss/ssh-dsa/;s/^ssh-//'`
+fi
 
-PLAIN_TYPES=`$SSH -Q key-plain | maybe_filter_sk | sed 's/^ssh-dss/ssh-dsa/;s/^ssh-//'`
 EXTRA_TYPES=""
 rsa=""
 

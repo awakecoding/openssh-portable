@@ -20,7 +20,11 @@ QUOTECOPY=${COPY}".\"blah\""
 QUOTECOPY_ARG=${COPY}'.\"blah\"'
 # File with spaces
 SPACECOPY="${COPY} this has spaces.txt"
-SPACECOPY_ARG="${COPY}\ this\ has\ spaces.txt"
+if [ "$os" == "windows" ]; then
+    SPACECOPY_ARG="\"${COPY} this has spaces.txt\""
+else
+    SPACECOPY_ARG="${COPY}\ this\ has\ spaces.txt"
+fi
 # File with glob metacharacters
 GLOBMETACOPY="${COPY} [metachar].txt"
 
@@ -77,6 +81,7 @@ echo "get \"$DATA\" $COPY" | ${SFTP} -D ${SFTPSERVER} >/dev/null 2>&1 \
 	|| fail "get failed"
 cmp $DATA ${COPY} || fail "corrupted copy after get"
 
+if [ "$os" != "windows" ]; then
 rm -f ${QUOTECOPY}
 cp $DATA ${QUOTECOPY}
 verbose "$tid: get filename with quotes"
@@ -84,6 +89,7 @@ echo "get \"$QUOTECOPY_ARG\" ${COPY}" | ${SFTP} -D ${SFTPSERVER} >/dev/null 2>&1
 	|| fail "get failed"
 cmp ${COPY} ${QUOTECOPY} || fail "corrupted copy after get with quotes"
 rm -f ${QUOTECOPY} ${COPY}
+fi
 
 rm -f "$SPACECOPY" ${COPY}
 cp $DATA "$SPACECOPY"
@@ -134,11 +140,13 @@ echo "put $DATA $COPY" | \
 	${SFTP} -D ${SFTPSERVER} >/dev/null 2>&1 || fail "put failed"
 cmp $DATA ${COPY} || fail "corrupted copy after put"
 
+if [ "$os" != "windows" ]; then
 rm -f ${QUOTECOPY}
 verbose "$tid: put filename with quotes"
 echo "put $DATA \"$QUOTECOPY_ARG\"" | \
 	${SFTP} -D ${SFTPSERVER} >/dev/null 2>&1 || fail "put failed"
 cmp $DATA ${QUOTECOPY} || fail "corrupted copy after put with quotes"
+fi
 
 rm -f "$SPACECOPY"
 verbose "$tid: put filename with spaces"

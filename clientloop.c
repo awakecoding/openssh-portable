@@ -364,7 +364,11 @@ client_x11_get_proto(struct ssh *ssh, const char *display,
 					/* Don't overflow on long timeouts */
 					x11_timeout_real = UINT_MAX;
 				}
+#ifdef WINDOWS
+				xasprintf(&cmd, "\"%s\" -f %s generate %s %s "
+#else
 				xasprintf(&cmd, "%s -f %s generate %s %s "
+#endif
 				    "untrusted timeout %u 2>%s",
 				    xauth_path, xauthfile, display,
 				    SSH_X11_PROTO, x11_timeout_real,
@@ -393,7 +397,11 @@ client_x11_get_proto(struct ssh *ssh, const char *display,
 		 */
 		if (trusted || generated) {
 			xasprintf(&cmd,
-			    "%s %s%s list %s 2>" _PATH_DEVNULL,
+#ifdef WINDOWS
+				"\"%s\" %s%s list %s 2>" _PATH_DEVNULL,
+#else
+				"%s %s%s list %s 2>" _PATH_DEVNULL,
+#endif
 			    xauth_path,
 			    generated ? "-f " : "" ,
 			    generated ? xauthfile : "",

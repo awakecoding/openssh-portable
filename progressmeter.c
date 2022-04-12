@@ -81,7 +81,12 @@ static const char unit[] = " KMGT";
 static int
 can_output(void)
 {
+#ifdef WINDOWS
+	/* On Windows, we can output if the stdout is a terminal*/
+	return isatty(STDOUT_FILENO);
+#else 
 	return (getpgrp() == tcgetpgrp(STDOUT_FILENO));
+#endif
 }
 
 static void

@@ -447,15 +447,44 @@ monitor_read_log(struct monitor *pmonitor)
 		fatal_fr(r, "reserve msg");
 	if (atomicio(read, pmonitor->m_log_recvfd, p, len) != len)
 		fatal_f("log fd read: %s", strerror(errno));
+
 	if ((r = sshbuf_get_u32(logmsg, &level)) != 0 ||
 	    (r = sshbuf_get_u32(logmsg, &forced)) != 0 ||
 	    (r = sshbuf_get_cstring(logmsg, &msg, NULL)) != 0)
 		fatal_fr(r, "parse");
-
-	/* Log it */
+	
 	if (log_level_name(level) == NULL)
 		fatal_f("invalid log level %u (corrupted message?)", level);
+
+#ifdef WINDOWS
+	char* pname;
+	u_int sftp_log_level, sftp_log_facility, sftp_log_stderr;
+	extern int log_stderr;
+	if ((r = sshbuf_get_cstring(logmsg, &pname, NULL)) != 0)
+		fatal_fr(r, "parse");
+
+	if (strcmp(pname, "sftp-server") == 0) {
+		if ((r = sshbuf_get_u32(logmsg, &sftp_log_level)) != 0 ||
+			(r = sshbuf_get_u32(logmsg, &sftp_log_facility)) != 0 ||
+			(r = sshbuf_get_u32(logmsg, &sftp_log_stderr)) != 0)
+			fatal_fr(r, "parse");
+	}
+
+	/*log it*/
+	if (authctxt->authenticated == 0) 
+		sshlogdirect(level, forced, "%s [preauth]", msg);
+	else {
+		if (strcmp(pname, "sftp-server") == 0) {
+			log_init(pname, sftp_log_level, sftp_log_facility, sftp_log_stderr);
+			sshlogdirect(level, forced, "%s", msg);
+			log_init("sshd", options.log_level, options.log_facility, log_stderr);
+		} else  
+			sshlogdirect(level, forced, "%s", msg);
+	}
+#else
+	/*log it*/
 	sshlogdirect(level, forced, "%s [preauth]", msg);
+#endif
 
 	sshbuf_free(logmsg);
 	free(msg);
@@ -1707,12 +1736,105 @@ mm_answer_audit_command(struct ssh *ssh, int socket, struct sshbuf *m)
 #endif /* SSH_AUDIT_EVENTS */
 
 void
+monitor_send_keystate(struct monitor *pmonitor) {
+	struct sshbuf *m;
+	int r;
+
+	if ((m = sshbuf_new()) == NULL)
+		fatal("%s: sshbuf_new failed", __func__);
+
+	if ((r = sshbuf_put_string(m, session_id2, session_id2_len)) != 0)
+		fatal("%s: buffer error: %s", __func__, ssh_err(r));
+	if ((r = sshbuf_put_stringb(m, child_state)) != 0)
+		fatal("%s: buffer error: %s", __func__, ssh_err(r));
+
+	if (ssh_msg_send(pmonitor->m_sendfd, 0, m) == -1)
+		fatal("%s: ssh_msg_send failed", __func__);
+
+	sshbuf_free(m);
+}
+
+void 
+monitor_recv_keystate(struct monitor*pmonitor) {
+	struct sshbuf *m;
+	u_char *cp, ver;
+	size_t len;
+	int r;
+
+	debug3("%s: entering ", __func__);
+
+	if ((m = sshbuf_new()) == NULL)
+		fatal("%s: sshbuf_new failed", __func__);
+	if (ssh_msg_recv(pmonitor->m_recvfd, m) == -1)
+		fatal("%s: ssh_msg_recv failed", __func__);
+	if ((r = sshbuf_get_u8(m, &ver)) != 0)
+		fatal("%s: buffer error: %s", __func__, ssh_err(r));
+	if (ver != 0)
+		fatal("%s: rexec version mismatch", __func__);
+
+	if ((r = sshbuf_get_string(m, &session_id2, &session_id2_len)) != 0)
+		fatal("%s: buffer error: %s", __func__, ssh_err(r));
+	if ((r = sshbuf_get_string_direct(m, &cp, &len)) != 0)
+		fatal("%s: buffer error: %s", __func__, ssh_err(r));
+
+	child_state = sshbuf_new();
+	if ((r = sshbuf_put(child_state, cp, len)) != 0)
+		fatal("%s: buffer error: %s", __func__, ssh_err(r));
+
+	debug3("%s: done", __func__);
+	sshbuf_free(m);
+}
+
+
+void
 monitor_clear_keystate(struct ssh *ssh, struct monitor *pmonitor)
 {
 	ssh_clear_newkeys(ssh, MODE_IN);
 	ssh_clear_newkeys(ssh, MODE_OUT);
 	sshbuf_free(child_state);
 	child_state = NULL;
+}
+
+void
+monitor_send_authopt(struct monitor *pmonitor, int untrusted) {
+	struct sshbuf *m = NULL;
+	int r = 0;
+
+	if ((m = sshbuf_new()) == NULL)
+		fatal("%s: sshbuf_new failed", __func__);
+	
+	if (auth_opts != NULL && (r = sshauthopt_serialise(auth_opts, m, untrusted)) != 0)
+		fatal("%s: sshauthopt_serialise: %s", __func__, ssh_err(r));
+
+	if (ssh_msg_send(pmonitor->m_sendfd, 0, m) == -1)
+		fatal("%s: ssh_msg_send failed", __func__);
+
+	sshbuf_free(m);
+}
+
+void
+monitor_recv_authopt(struct monitor*pmonitor) {
+	struct sshbuf *m;
+	u_char *cp, ver;
+	int r = 0;
+
+	debug3("%s: entering ", __func__);
+
+	if ((m = sshbuf_new()) == NULL)
+		fatal("%s: sshbuf_new failed", __func__);
+	if (ssh_msg_recv(pmonitor->m_recvfd, m) == -1)
+		fatal("%s: ssh_msg_recv failed", __func__);
+	if ((r = sshbuf_get_u8(m, &ver)) != 0)
+		fatal("%s: buffer error: %s", __func__, ssh_err(r));
+	if (ver != 0)
+		fatal("%s: rexec version mismatch", __func__);
+
+	if ((r = sshauthopt_deserialise(m, &auth_opts)) != 0)
+		fatal("%s: sshauthopt_deserialise: %s",
+			__func__, ssh_err(r));
+	
+	debug3("%s: done", __func__);
+	sshbuf_free(m);
 }
 
 void
@@ -1732,9 +1854,11 @@ monitor_apply_keystate(struct ssh *ssh, struct monitor *pmonitor)
 		fatal_f("incorrect session id length %zu (expected %u)",
 		    sshbuf_len(ssh->kex->session_id), session_id2_len);
 	}
+
 	if (memcmp(sshbuf_ptr(ssh->kex->session_id), session_id2,
 	    session_id2_len) != 0)
 		fatal_f("session ID mismatch");
+
 	/* XXX set callbacks */
 #ifdef WITH_OPENSSL
 	kex->kex[KEX_DH_GRP1_SHA1] = kex_gen_server;
@@ -1828,6 +1952,14 @@ monitor_reinit(struct monitor *mon)
 {
 	monitor_openfds(mon, 0);
 }
+
+#ifdef WINDOWS
+void
+monitor_reinit_withlogs(struct monitor* mon)
+{
+	monitor_openfds(mon, 1);
+}
+#endif
 
 #ifdef GSSAPI
 int
@@ -1955,4 +2087,5 @@ mm_answer_gss_userok(struct ssh *ssh, int sock, struct sshbuf *m)
 	return (authenticated);
 }
 #endif /* GSSAPI */
+
 
