@@ -20,6 +20,11 @@ include(CMakeDependentOption)
 
 cmake_policy(SET CMP0091 NEW)
 
+set(CMAKE_SHARED_LIBRARY_PREFIX "")
+set(CMAKE_STATIC_LIBRARY_PREFIX "")
+
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
 set(CMAKE_DISABLE_IN_SOURCE_BUILD ON)
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 
@@ -129,7 +134,7 @@ find_path(ZLIB_INCLUDE_DIR
         "${OPENSSH_DEPS_DIR}/ZLib/sdk")
 
 find_library(ZLIB_LIBRARY
-    NAMES "zlib.lib"
+    NAMES zlib z
     HINTS ${ZLIB_LIBRARY_DIR}
         "${OPENSSH_DEPS_DIR}/ZLib/bin/${TARGET_ARCH}")
 
@@ -147,7 +152,7 @@ find_path(LIBRESSL_INCLUDE_DIR
         "${OPENSSH_DEPS_DIR}/LibreSSL/sdk/include")
 
 find_library(LIBRESSL_LIBRARY
-    NAMES "libcrypto.lib"
+    NAMES libcrypto crypto
     HINTS ${LIBRESSL_LIBRARY_DIR}
         "${OPENSSH_DEPS_DIR}/LibreSSL/bin/desktop/${TARGET_ARCH}")
 
@@ -165,7 +170,7 @@ find_path(FIDO2_INCLUDE_DIR
         "${OPENSSH_DEPS_DIR}/libfido2")
 
 find_library(FIDO2_LIBRARY
-    NAMES "fido2.lib"
+    NAMES libfido2 fido2
     HINTS ${FIDO2_LIBRARY_DIR}
         "${OPENSSH_DEPS_DIR}/libfido2/${FIDO2_ARCH}/Release/static")
 
@@ -244,8 +249,8 @@ if(WIN32)
         "-OutCRTHeader" "${OPENSSH_WIN32_SRC_DIR}/win32compat/inc/crtheaders.h"
         WORKING_DIRECTORY "${OPENSSH_WIN32_SRC_DIR}/openssh")
 else()
-    file(COPY_FILE "${OPENSSH_WIN32_SRC_DIR}/openssh/config.h.vs"
-        "${OPENSSH_SRC_DIR}/config.h")
+    #file(COPY_FILE "${OPENSSH_WIN32_SRC_DIR}/openssh/config.h.vs"
+    #    "${OPENSSH_SRC_DIR}/config.h")
 endif()
 
 # global include directories
@@ -253,11 +258,11 @@ endif()
 set(OPENSSH_GLOBAL_INCLUDE_DIRS
     "${OPENSSH_BIN_DIR}"
     "${OPENSSH_SRC_DIR}"
-    "${OPENSSH_SRC_DIR}/include")
+    "${OPENSSH_SRC_DIR}/include"
+    "${OPENSSH_SRC_DIR}/openbsd-compat")
 
 if(WIN32)
     list(APPEND OPENSSH_GLOBAL_INCLUDE_DIRS
-        "${OPENSSH_SRC_DIR}/openbsd-compat"
         "${OPENSSH_SRC_DIR}/contrib/win32/openssh"
         "${OPENSSH_SRC_DIR}/contrib/win32/win32compat")
 endif()
@@ -463,6 +468,11 @@ set(OPENSSH_OPENBSD_COMPAT_SOURCES
     "${OPENSSH_SRC_DIR}/openbsd-compat/strcasestr.c"
     "${OPENSSH_SRC_DIR}/openbsd-compat/strndup.c")
 
+if(NOT WIN32)
+    list(APPEND OPENSSH_OPENBSD_COMPAT_SOURCES
+        "${OPENSSH_SRC_DIR}/openbsd-compat/freezero.c")
+endif()
+
 add_library(openbsd_compat STATIC
     ${OPENSSH_OPENBSD_COMPAT_HEADERS}
     ${OPENSSH_OPENBSD_COMPAT_SOURCES})
@@ -472,6 +482,8 @@ target_include_directories(openbsd_compat PRIVATE ${OPENSSH_GLOBAL_INCLUDE_DIRS}
 if(WIN32)
     target_include_directories(openbsd_compat SYSTEM BEFORE PRIVATE ${WIN32_COMPAT_INCLUDE_DIRS})
     set_target_properties(openbsd_compat PROPERTIES LINK_FLAGS "/ignore:4221")
+else()
+    target_link_libraries(openbsd_compat dl)
 endif()
 
 # libssh
@@ -602,8 +614,12 @@ if(WIN32)
         "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/spawn-ext.c")
 endif()
 
-set(OPENSSH_LIBSSH_HEADERS
-    "${OPENSSH_SRC_DIR}/sshfileperm.h")
+set(OPENSSH_LIBSSH_HEADERS "")
+
+if(EXISTS "${OPENSSH_SRC_DIR}/sshfileperm.h")
+    list(APPEND OPENSSH_LIBSSH_HEADERS
+        "${OPENSSH_SRC_DIR}/sshfileperm.h")
+endif()
 
 add_library(libssh STATIC
     ${OPENSSH_LIBSSH_HEADERS}
@@ -613,7 +629,11 @@ if(WIN32)
     set_target_properties(libssh PROPERTIES LINK_FLAGS "/ignore:4221")
 endif()
 
-target_link_libraries(libssh posix_compat openbsd_compat)
+if(WIN32)
+    target_link_libraries(libssh posix_compat)
+endif()
+
+target_link_libraries(libssh openbsd_compat)
 
 if(WIN32)
     if(DEFINED LIBRESSL_LIBCRYPTO_DLL)
@@ -647,9 +667,15 @@ set(OPENSSH_SSH_SOURCES
 
 if(WIN32)
     list(APPEND OPENSSH_SSH_SOURCES
-        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/wmain_common.c"
         "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/win32_sshtty.c"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/wmain_common.c"
         "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/win32-utf8.c")
+else()
+    list(APPEND OPENSSH_SSH_SOURCES
+        "${OPENSSH_SRC_DIR}/sshtty.c"
+        "${OPENSSH_SRC_DIR}/ttymodes.c"
+        "${OPENSSH_SRC_DIR}/mux.c"
+        "${OPENSSH_SRC_DIR}/utf8.c")
 endif()
 
 set(OPENSSH_SSH_HEADERS
