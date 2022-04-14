@@ -86,7 +86,13 @@ endif()
 
 set(USE_OPENSSL TRUE)
 
-option(USE_PREBUILT_DEPS "Use prebuilt Microsoft dependencies" ON)
+if(WIN32)
+    set(PREBUILT_DEPS_AVAILABLE ON)
+else()
+    set(PREBUILT_DEPS_AVAILABLE OFF)
+endif()
+
+option(USE_PREBUILT_DEPS "Use prebuilt Microsoft dependencies" ${PREBUILT_DEPS_AVAILABLE})
 
 set(OPENSSH_DEPS_DIR "${OPENSSH_BIN_DIR}/contrib/win32/openssh")
 
@@ -198,145 +204,161 @@ set(OPENSSH_DEPENDENCIES zlib libcrypto libfido2 libcbor)
 
 # system libraries
 
-set(OPENSSH_SYSTEM_LIBRARIES
-    bcrypt.lib
-    Userenv.lib
-    Crypt32.lib
-    Ws2_32.lib
-    Secur32.lib
-    Shlwapi.lib
-    kernel32.lib
-    user32.lib
-    gdi32.lib
-    winspool.lib
-    comdlg32.lib
-    advapi32.lib
-    shell32.lib
-    ole32.lib
-    oleaut32.lib
-    uuid.lib
-    odbc32.lib
-    odbccp32.lib
-    Netapi32.lib
-    Rpcrt4.lib
-    ntdll.lib)
+if(WIN32)
+    set(OPENSSH_SYSTEM_LIBRARIES
+        bcrypt.lib
+        Userenv.lib
+        Crypt32.lib
+        Ws2_32.lib
+        Secur32.lib
+        Shlwapi.lib
+        kernel32.lib
+        user32.lib
+        gdi32.lib
+        winspool.lib
+        comdlg32.lib
+        advapi32.lib
+        shell32.lib
+        ole32.lib
+        oleaut32.lib
+        uuid.lib
+        odbc32.lib
+        odbccp32.lib
+        Netapi32.lib
+        Rpcrt4.lib
+        ntdll.lib)
+endif()
 
 # config
 
-file(MAKE_DIRECTORY "${OPENSSH_WIN32_BIN_DIR}/openssh")
-file(MAKE_DIRECTORY "${OPENSSH_WIN32_BIN_DIR}/win32compat/inc")
+if(WIN32)
+    file(MAKE_DIRECTORY "${OPENSSH_WIN32_BIN_DIR}/openssh")
+    file(MAKE_DIRECTORY "${OPENSSH_WIN32_BIN_DIR}/win32compat/inc")
 
-execute_process(COMMAND "powershell.exe"
-    "-Executionpolicy" "Bypass"
-    "-File" "${OPENSSH_WIN32_SRC_DIR}/openssh/config.ps1"
-    "-Config_h_vs" "${OPENSSH_WIN32_SRC_DIR}/openssh/config.h.vs"
-    "-Config_h" "${OPENSSH_SRC_DIR}/config.h"
-    "-VCIncludePath" "${VC_INCLUDE_PATH}"
-    "-OutCRTHeader" "${OPENSSH_WIN32_SRC_DIR}/win32compat/inc/crtheaders.h"
-    WORKING_DIRECTORY "${OPENSSH_WIN32_SRC_DIR}/openssh")
+    execute_process(COMMAND "powershell.exe"
+        "-Executionpolicy" "Bypass"
+        "-File" "${OPENSSH_WIN32_SRC_DIR}/openssh/config.ps1"
+        "-Config_h_vs" "${OPENSSH_WIN32_SRC_DIR}/openssh/config.h.vs"
+        "-Config_h" "${OPENSSH_SRC_DIR}/config.h"
+        "-VCIncludePath" "${VC_INCLUDE_PATH}"
+        "-OutCRTHeader" "${OPENSSH_WIN32_SRC_DIR}/win32compat/inc/crtheaders.h"
+        WORKING_DIRECTORY "${OPENSSH_WIN32_SRC_DIR}/openssh")
+else()
+    file(COPY_FILE "${OPENSSH_WIN32_SRC_DIR}/openssh/config.h.vs"
+        "${OPENSSH_SRC_DIR}/config.h")
+endif()
 
 # global include directories
 
 set(OPENSSH_GLOBAL_INCLUDE_DIRS
     "${OPENSSH_BIN_DIR}"
     "${OPENSSH_SRC_DIR}"
-    "${OPENSSH_SRC_DIR}/include"
-    "${OPENSSH_SRC_DIR}/openbsd-compat"
-    "${OPENSSH_SRC_DIR}/contrib/win32/openssh"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat")
+    "${OPENSSH_SRC_DIR}/include")
 
-set(WIN32_COMPAT_INCLUDE_DIRS
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc"
-    "${OPENSSH_BIN_DIR}/contrib/win32/win32compat/inc")
+if(WIN32)
+    list(APPEND OPENSSH_GLOBAL_INCLUDE_DIRS
+        "${OPENSSH_SRC_DIR}/openbsd-compat"
+        "${OPENSSH_SRC_DIR}/contrib/win32/openssh"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat")
+endif()
 
 include_directories(${OPENSSH_GLOBAL_INCLUDE_DIRS})
-include_directories(BEFORE SYSTEM ${WIN32_COMPAT_INCLUDE_DIRS})
+
+if(WIN32)
+    set(WIN32_COMPAT_INCLUDE_DIRS
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc"
+        "${OPENSSH_BIN_DIR}/contrib/win32/win32compat/inc")
+
+    include_directories(BEFORE SYSTEM ${WIN32_COMPAT_INCLUDE_DIRS})
+endif()
 
 # posix_compat
 
-set(OPENSSH_POSIX_COMPAT_HEADERS
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/w32fd.h"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/fcntl.h"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/signal.h"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/sys/select.h"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/sys/socket.h"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/sys/stat.h"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/sys/time.h"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/sys/wait.h"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/unistd.h"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/poll.h"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/sys/statvfs.h"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/dlfcn.h"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/syslog.h"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/signal_internal.h"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/utf.h"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/arpa/inet.h"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/arpa/nameser.h"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/grp.h"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/libgen.h"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/netdb.h"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/netinet/in.h"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/netinet/in_systm.h"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/netinet/ip.h"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/netinet/tcp.h"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/resolv.h"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/sys/ioctl.h"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/sys/resource.h"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/sys/uio.h"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/sys/un.h"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/termios.h"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/dirent.h"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/pwd.h"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/misc_internal.h"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/stdio.h"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/string.h"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/strings.h"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/sys/types.h"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/ctype.h"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/stdlib.h"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/debug.h"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/console.h"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/tnnet.h"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/spawn.h"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/net/if.h"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/time.h"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/gssapi.h"
-    "${OPENSSH_SRC_DIR}/contrib/win32/openssh/MicrosoftTelemetry.h"
-    "${OPENSSH_SRC_DIR}/contrib/win32/openssh/sshTelemetry.h"
-    "${OPENSSH_SRC_DIR}/contrib/win32/openssh/sshTelemetryInternal.h")
+if(WIN32)
+    set(OPENSSH_POSIX_COMPAT_HEADERS
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/w32fd.h"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/fcntl.h"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/signal.h"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/sys/select.h"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/sys/socket.h"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/sys/stat.h"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/sys/time.h"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/sys/wait.h"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/unistd.h"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/poll.h"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/sys/statvfs.h"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/dlfcn.h"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/syslog.h"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/signal_internal.h"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/utf.h"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/arpa/inet.h"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/arpa/nameser.h"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/grp.h"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/libgen.h"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/netdb.h"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/netinet/in.h"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/netinet/in_systm.h"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/netinet/ip.h"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/netinet/tcp.h"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/resolv.h"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/sys/ioctl.h"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/sys/resource.h"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/sys/uio.h"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/sys/un.h"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/termios.h"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/dirent.h"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/pwd.h"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/misc_internal.h"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/stdio.h"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/string.h"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/strings.h"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/sys/types.h"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/ctype.h"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/stdlib.h"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/debug.h"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/console.h"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/tnnet.h"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/spawn.h"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/net/if.h"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/time.h"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/inc/gssapi.h"
+        "${OPENSSH_SRC_DIR}/contrib/win32/openssh/MicrosoftTelemetry.h"
+        "${OPENSSH_SRC_DIR}/contrib/win32/openssh/sshTelemetry.h"
+        "${OPENSSH_SRC_DIR}/contrib/win32/openssh/sshTelemetryInternal.h")
 
-set(OPENSSH_POSIX_COMPAT_SOURCES
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/w32fd.c"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/signal.c"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/socketio.c"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/fileio.c"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/termio.c"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/misc.c"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/signal_sigalrm.c"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/signal_sigchld.c"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/w32api_proxies.c"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/win32_usertoken_utils.c"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/w32log.c"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/pwd.c"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/win32_dirent.c"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/no-ops.c"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/ansiprsr.c"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/console.c"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/tncon.c"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/tnnet.c"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/utf.c"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/spawn.c"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/signal_wait.c"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/win32_pty.c"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/gss-sspi.c"
-    "${OPENSSH_SRC_DIR}/contrib/win32/openssh/sshTelemetry.c")
+    set(OPENSSH_POSIX_COMPAT_SOURCES
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/w32fd.c"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/signal.c"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/socketio.c"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/fileio.c"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/termio.c"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/misc.c"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/signal_sigalrm.c"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/signal_sigchld.c"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/w32api_proxies.c"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/win32_usertoken_utils.c"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/w32log.c"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/pwd.c"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/win32_dirent.c"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/no-ops.c"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/ansiprsr.c"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/console.c"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/tncon.c"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/tnnet.c"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/utf.c"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/spawn.c"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/signal_wait.c"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/win32_pty.c"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/gss-sspi.c"
+        "${OPENSSH_SRC_DIR}/contrib/win32/openssh/sshTelemetry.c")
 
-add_library(posix_compat STATIC
-    ${OPENSSH_POSIX_COMPAT_HEADERS}
-    ${OPENSSH_POSIX_COMPAT_SOURCES})
+    add_library(posix_compat STATIC
+        ${OPENSSH_POSIX_COMPAT_HEADERS}
+        ${OPENSSH_POSIX_COMPAT_SOURCES})
 
-set_target_properties(posix_compat PROPERTIES
-    INCLUDE_DIRECTORIES "")
+    set_target_properties(posix_compat PROPERTIES
+        INCLUDE_DIRECTORIES "")
+endif()
 
 # openbsd_compat
 
@@ -446,9 +468,11 @@ add_library(openbsd_compat STATIC
     ${OPENSSH_OPENBSD_COMPAT_SOURCES})
 
 target_include_directories(openbsd_compat PRIVATE ${OPENSSH_GLOBAL_INCLUDE_DIRS})
-target_include_directories(openbsd_compat SYSTEM BEFORE PRIVATE ${WIN32_COMPAT_INCLUDE_DIRS})
 
-set_target_properties(openbsd_compat PROPERTIES LINK_FLAGS "/ignore:4221")
+if(WIN32)
+    target_include_directories(openbsd_compat SYSTEM BEFORE PRIVATE ${WIN32_COMPAT_INCLUDE_DIRS})
+    set_target_properties(openbsd_compat PROPERTIES LINK_FLAGS "/ignore:4221")
+endif()
 
 # libssh
 
@@ -552,9 +576,13 @@ list(APPEND OPENSSH_LIBSSH_SOURCES
     "${OPENSSH_SRC_DIR}/platform-pledge.c"
     "${OPENSSH_SRC_DIR}/platform-tracing.c"
     "${OPENSSH_SRC_DIR}/platform.c"
-    "${OPENSSH_SRC_DIR}/sandbox-pledge.c"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/ttymodes_windows.c"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/w32-sshfileperm.c")
+    "${OPENSSH_SRC_DIR}/sandbox-pledge.c")
+
+if(WIN32)
+    list(APPEND OPENSSH_LIBSSH_SOURCES
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/ttymodes_windows.c"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/w32-sshfileperm.c")
+endif()
 
 if(USE_OPENSSL)
     list(APPEND OPENSSH_LIBSSH_SOURCES
@@ -567,8 +595,12 @@ list(APPEND OPENSSH_LIBSSH_SOURCES
     "${OPENSSH_SRC_DIR}/ssh-ed25519-sk.c"
     "${OPENSSH_SRC_DIR}/ssh-sk.c"
     "${OPENSSH_SRC_DIR}/sshbuf-io.c"
-    "${OPENSSH_SRC_DIR}/cipher-chachapoly-libcrypto.c"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/spawn-ext.c")
+    "${OPENSSH_SRC_DIR}/cipher-chachapoly-libcrypto.c")
+
+if(WIN32)
+    list(APPEND OPENSSH_LIBSSH_SOURCES
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/spawn-ext.c")
+endif()
 
 set(OPENSSH_LIBSSH_HEADERS
     "${OPENSSH_SRC_DIR}/sshfileperm.h")
@@ -577,25 +609,31 @@ add_library(libssh STATIC
     ${OPENSSH_LIBSSH_HEADERS}
     ${OPENSSH_LIBSSH_SOURCES})
 
-set_target_properties(libssh PROPERTIES LINK_FLAGS "/ignore:4221")
+if(WIN32)
+    set_target_properties(libssh PROPERTIES LINK_FLAGS "/ignore:4221")
+endif()
 
 target_link_libraries(libssh posix_compat openbsd_compat)
 
-if(DEFINED LIBRESSL_LIBCRYPTO_DLL)
-    add_custom_command(TARGET libssh POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy
-        "${LIBRESSL_LIBCRYPTO_DLL}" "$<TARGET_FILE_DIR:libssh>/libcrypto.dll")
+if(WIN32)
+    if(DEFINED LIBRESSL_LIBCRYPTO_DLL)
+        add_custom_command(TARGET libssh POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy
+            "${LIBRESSL_LIBCRYPTO_DLL}" "$<TARGET_FILE_DIR:libssh>/libcrypto.dll")
+    endif()
 endif()
 
 # common executable definitions
 
 set(OPENSSH_COMMON_LIBRARIES libssh ${OPENSSH_DEPENDENCIES} ${OPENSSH_SYSTEM_LIBRARIES})
 
-set(OPENSSH_TARGETOS_MANIFEST
-    "${OPENSSH_SRC_DIR}/contrib/win32/openssh/targetos.manifest")
+if(WIN32)
+    set(OPENSSH_TARGETOS_MANIFEST
+        "${OPENSSH_SRC_DIR}/contrib/win32/openssh/targetos.manifest")
 
-set(OPENSSH_VERSION_RC
-    "${OPENSSH_SRC_DIR}/contrib/win32/openssh/version.rc")
+    set(OPENSSH_VERSION_RC
+        "${OPENSSH_SRC_DIR}/contrib/win32/openssh/version.rc")
+endif()
 
 # ssh
 
@@ -605,10 +643,14 @@ set(OPENSSH_SSH_SOURCES
     "${OPENSSH_SRC_DIR}/ssh.c"
     "${OPENSSH_SRC_DIR}/sshconnect.c"
     "${OPENSSH_SRC_DIR}/sshconnect2.c"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/wmain_common.c"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/win32_sshtty.c"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/win32-utf8.c"
     "${OPENSSH_SRC_DIR}/ssh-sk-client.c")
+
+if(WIN32)
+    list(APPEND OPENSSH_SSH_SOURCES
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/wmain_common.c"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/win32_sshtty.c"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/win32-utf8.c")
+endif()
 
 set(OPENSSH_SSH_HEADERS
     "${OPENSSH_SRC_DIR}/atomicio.h"
@@ -694,7 +736,9 @@ add_executable(ssh
     ${OPENSSH_SSH_HEADERS}
     ${OPENSSH_SSH_RESOURCES})
 
-set_target_properties(ssh PROPERTIES LINK_FLAGS "${C_FLAGS_ENTRY_POINT} /ignore:4098 /ignore:4099")
+if(WIN32)
+    set_target_properties(ssh PROPERTIES LINK_FLAGS "${C_FLAGS_ENTRY_POINT} /ignore:4098 /ignore:4099")
+endif()
 
 target_link_libraries(ssh ${OPENSSH_COMMON_LIBRARIES})
 
@@ -740,12 +784,16 @@ set(OPENSSH_SSHD_SOURCES
     "${OPENSSH_SRC_DIR}/sshd.c"
     "${OPENSSH_SRC_DIR}/sshlogin.c"
     "${OPENSSH_SRC_DIR}/srclimit.c"
-    "${OPENSSH_SRC_DIR}/ssh-sk-client.c"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/win32_groupaccess.c"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/win32_sshpty.c"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/wmain_sshd.c"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/w32-doexec.c"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/win32-utf8.c")
+    "${OPENSSH_SRC_DIR}/ssh-sk-client.c")
+
+if(WIN32)
+    list(APPEND OPENSSH_SSHD_SOURCES
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/win32_groupaccess.c"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/win32_sshpty.c"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/wmain_sshd.c"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/w32-doexec.c"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/win32-utf8.c")
+endif()
 
 set(OPENSSH_SSHD_RESOURCES
     "${OPENSSH_TARGETOS_MANIFEST}"
@@ -755,7 +803,9 @@ add_executable(sshd
     ${OPENSSH_SSHD_SOURCES}
     ${OPENSSH_SSHD_RESOURCES})
 
-set_target_properties(sshd PROPERTIES LINK_FLAGS "${C_FLAGS_ENTRY_POINT} /ignore:4099 ${C_FLAGS_FORCE_MULTIPLE}")
+if(WIN32)
+    set_target_properties(sshd PROPERTIES LINK_FLAGS "${C_FLAGS_ENTRY_POINT} /ignore:4099 ${C_FLAGS_FORCE_MULTIPLE}")
+endif()
 
 target_link_libraries(sshd ${OPENSSH_COMMON_LIBRARIES})
 
@@ -765,9 +815,13 @@ set(OPENSSH_SCP_SOURCES
     "${OPENSSH_SRC_DIR}/scp.c"
     "${OPENSSH_SRC_DIR}/sftp-client.c"
     "${OPENSSH_SRC_DIR}/sftp-common.c"
-    "${OPENSSH_SRC_DIR}/sftp-glob.c"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/wmain_common.c"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/win32-utf8.c")
+    "${OPENSSH_SRC_DIR}/sftp-glob.c")
+
+if(WIN32)
+    list(APPEND OPENSSH_SCP_SOURCES
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/wmain_common.c"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/win32-utf8.c")
+endif()
 
 set(OPENSSH_SCP_RESOURCES
     "${OPENSSH_TARGETOS_MANIFEST}"
@@ -777,7 +831,9 @@ add_executable(scp
     ${OPENSSH_SCP_SOURCES}
     ${OPENSSH_SCP_RESOURCES})
 
-set_target_properties(scp PROPERTIES LINK_FLAGS "${C_FLAGS_ENTRY_POINT}")
+if(WIN32)
+    set_target_properties(scp PROPERTIES LINK_FLAGS "${C_FLAGS_ENTRY_POINT}")
+endif()
 
 target_link_libraries(scp ${OPENSSH_COMMON_LIBRARIES})
 
@@ -788,9 +844,13 @@ set(OPENSSH_SFTP_SOURCES
     "${OPENSSH_SRC_DIR}/sftp-client.c"
     "${OPENSSH_SRC_DIR}/sftp-common.c"
     "${OPENSSH_SRC_DIR}/sftp-glob.c"
-    "${OPENSSH_SRC_DIR}/sftp.c"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/wmain_common.c"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/win32-utf8.c")
+    "${OPENSSH_SRC_DIR}/sftp.c")
+
+if(WIN32)
+    list(APPEND OPENSSH_SFTP_SOURCES
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/wmain_common.c"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/win32-utf8.c")
+endif()
 
 set(OPENSSH_SFTP_RESOURCES
     "${OPENSSH_TARGETOS_MANIFEST}"
@@ -800,7 +860,9 @@ add_executable(sftp
     ${OPENSSH_SFTP_SOURCES}
     ${OPENSSH_SFTP_RESOURCES})
 
-set_target_properties(sftp PROPERTIES LINK_FLAGS "${C_FLAGS_ENTRY_POINT}")
+if(WIN32)
+    set_target_properties(sftp PROPERTIES LINK_FLAGS "${C_FLAGS_ENTRY_POINT}")
+endif()
 
 target_link_libraries(sftp ${OPENSSH_COMMON_LIBRARIES})
 
@@ -809,8 +871,12 @@ target_link_libraries(sftp ${OPENSSH_COMMON_LIBRARIES})
 set(OPENSSH_SFTP_SERVER_SOURCES
     "${OPENSSH_SRC_DIR}/sftp-common.c"
     "${OPENSSH_SRC_DIR}/sftp-server-main.c"
-    "${OPENSSH_SRC_DIR}/sftp-server.c"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/wmain_common.c")
+    "${OPENSSH_SRC_DIR}/sftp-server.c")
+
+if(WIN32)
+    list(APPEND OPENSSH_SFTP_SERVER_SOURCES
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/wmain_common.c")
+endif()
 
 set(OPENSSH_SFTP_SERVER_RESOURCES
     "${OPENSSH_TARGETOS_MANIFEST}"
@@ -820,7 +886,9 @@ add_executable(sftp-server
     ${OPENSSH_SFTP_SERVER_SOURCES}
     ${OPENSSH_SFTP_SERVER_RESOURCES})
 
-set_target_properties(sftp-server PROPERTIES LINK_FLAGS "${C_FLAGS_ENTRY_POINT}")
+if(WIN32)
+    set_target_properties(sftp-server PROPERTIES LINK_FLAGS "${C_FLAGS_ENTRY_POINT}")
+endif()
 
 target_link_libraries(sftp-server ${OPENSSH_COMMON_LIBRARIES})
 
@@ -828,9 +896,13 @@ target_link_libraries(sftp-server ${OPENSSH_COMMON_LIBRARIES})
 
 set(OPENSSH_SSH_ADD_SOURCES
     "${OPENSSH_SRC_DIR}/ssh-add.c"
-    "${OPENSSH_SRC_DIR}/ssh-sk-client.c"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/win32-utf8.c"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/wmain_common.c")
+    "${OPENSSH_SRC_DIR}/ssh-sk-client.c")
+
+if(WIN32)
+    list(APPEND OPENSSH_SSH_ADD_SOURCES
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/win32-utf8.c"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/wmain_common.c")
+endif()
 
 set(OPENSSH_SSH_ADD_RESOURCES
     "${OPENSSH_TARGETOS_MANIFEST}"
@@ -840,7 +912,9 @@ add_executable(ssh-add
     ${OPENSSH_SSH_ADD_SOURCES}
     ${OPENSSH_SSH_ADD_RESOURCES})
 
-set_target_properties(ssh-add PROPERTIES LINK_FLAGS "${C_FLAGS_ENTRY_POINT} ${C_FLAGS_FORCE_MULTIPLE}")
+if(WIN32)
+    set_target_properties(ssh-add PROPERTIES LINK_FLAGS "${C_FLAGS_ENTRY_POINT} ${C_FLAGS_FORCE_MULTIPLE}")
+endif()
 
 target_link_libraries(ssh-add ${OPENSSH_COMMON_LIBRARIES})
 
@@ -848,21 +922,29 @@ target_link_libraries(ssh-add ${OPENSSH_COMMON_LIBRARIES})
 
 set(OPENSSH_SSH_AGENT_SOURCES
     "${OPENSSH_SRC_DIR}/ssh-pkcs11-client.c"
-    "${OPENSSH_SRC_DIR}/ssh-sk-client.c"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/ssh-agent/agent-main.c"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/ssh-agent/agent.c"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/ssh-agent/connection.c"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/ssh-agent/keyagent-request.c")
+    "${OPENSSH_SRC_DIR}/ssh-sk-client.c")
 
-set(OPENSSH_SSH_AGENT_RESOURCES
-    "${OPENSSH_SRC_DIR}/contrib/win32/openssh/openssh-events.rc"
-    "${OPENSSH_SRC_DIR}/contrib/win32/openssh/version.rc")
+if(WIN32)
+    list(APPEND OPENSSH_SSH_AGENT_SOURCES
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/ssh-agent/agent-main.c"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/ssh-agent/agent.c"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/ssh-agent/connection.c"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/ssh-agent/keyagent-request.c")
+endif()
+
+if(WIN32)
+    set(OPENSSH_SSH_AGENT_RESOURCES
+        "${OPENSSH_SRC_DIR}/contrib/win32/openssh/openssh-events.rc"
+        "${OPENSSH_SRC_DIR}/contrib/win32/openssh/version.rc")
+endif()
 
 add_executable(ssh-agent
     ${OPENSSH_SSH_AGENT_SOURCES}
     ${OPENSSH_SSH_AGENT_RESOURCES})
 
-set_target_properties(ssh-agent PROPERTIES LINK_FLAGS "${C_FLAGS_ENTRY_POINT}")
+if(WIN32)
+    set_target_properties(ssh-agent PROPERTIES LINK_FLAGS "${C_FLAGS_ENTRY_POINT}")
+endif()
 
 target_link_libraries(ssh-agent ${OPENSSH_COMMON_LIBRARIES})
 
@@ -871,9 +953,13 @@ target_link_libraries(ssh-agent ${OPENSSH_COMMON_LIBRARIES})
 set(OPENSSH_SSH_KEYGEN_SOURCES
     "${OPENSSH_SRC_DIR}/ssh-keygen.c"
     "${OPENSSH_SRC_DIR}/sshsig.c"
-    "${OPENSSH_SRC_DIR}/ssh-sk-client.c"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/win32-utf8.c"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/wmain_common.c")
+    "${OPENSSH_SRC_DIR}/ssh-sk-client.c")
+
+if(WIN32)
+    list(APPEND OPENSSH_SSH_KEYGEN_SOURCES
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/win32-utf8.c"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/wmain_common.c")
+endif()
 
 set(OPENSSH_SSH_KEYGEN_RESOURCES
     "${OPENSSH_TARGETOS_MANIFEST}"
@@ -883,7 +969,9 @@ add_executable(ssh-keygen
     ${OPENSSH_SSH_KEYGEN_SOURCES}
     ${OPENSSH_SSH_KEY_RESOURCES})
 
-set_target_properties(ssh-keygen PROPERTIES LINK_FLAGS "${C_FLAGS_ENTRY_POINT} ${C_FLAGS_FORCE_MULTIPLE}")
+if(WIN32)
+    set_target_properties(ssh-keygen PROPERTIES LINK_FLAGS "${C_FLAGS_ENTRY_POINT} ${C_FLAGS_FORCE_MULTIPLE}")
+endif()
 
 target_link_libraries(ssh-keygen ${OPENSSH_COMMON_LIBRARIES})
 
@@ -891,55 +979,73 @@ target_link_libraries(ssh-keygen ${OPENSSH_COMMON_LIBRARIES})
 
 set(OPENSSH_SSH_KEYSCAN_SOURCES
     "${OPENSSH_SRC_DIR}/ssh-keyscan.c"
-    "${OPENSSH_SRC_DIR}/ssh-sk-client.c"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/wmain_common.c")
+    "${OPENSSH_SRC_DIR}/ssh-sk-client.c")
 
-set(OPENSSH_SSH_KEYSCAN_RESOURCES
-    "${OPENSSH_TARGETOS_MANIFEST}"
-    "${OPENSSH_VERSION_RC}")
+if(WIN32)
+    list(APPEND OPENSSH_SSH_KEYSCAN_SOURCES
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/wmain_common.c")
+endif()
+
+if(WIN32)
+    set(OPENSSH_SSH_KEYSCAN_RESOURCES
+        "${OPENSSH_TARGETOS_MANIFEST}"
+        "${OPENSSH_VERSION_RC}")
+endif()
 
 add_executable(ssh-keyscan
     ${OPENSSH_SSH_KEYSCAN_SOURCES}
     ${OPENSSH_SSH_KEYSCAN_RESOURCES})
 
-set_target_properties(ssh-keyscan PROPERTIES LINK_FLAGS "${C_FLAGS_ENTRY_POINT} ${C_FLAGS_FORCE_MULTIPLE}")
+if(WIN32)
+    set_target_properties(ssh-keyscan PROPERTIES LINK_FLAGS "${C_FLAGS_ENTRY_POINT} ${C_FLAGS_FORCE_MULTIPLE}")
+endif()
 
 target_link_libraries(ssh-keyscan ${OPENSSH_COMMON_LIBRARIES})
 
 # ssh-shellhost
 
-set(OPENSSH_SSH_SHELLHOST_SOURCES
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/utf.c"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/shell-host.c")
+if(WIN32)
+    set(OPENSSH_SSH_SHELLHOST_SOURCES
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/utf.c"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/shell-host.c")
 
-set(OPENSSH_SSH_SHELLHOST_RESOURCES
-    "${OPENSSH_TARGETOS_MANIFEST}"
-    "${OPENSSH_VERSION_RC}")
+    set(OPENSSH_SSH_SHELLHOST_RESOURCES
+        "${OPENSSH_TARGETOS_MANIFEST}"
+        "${OPENSSH_VERSION_RC}")
 
-add_executable(ssh-shellhost
-    ${OPENSSH_SSH_SHELLHOST_SOURCES}
-    ${OPENSSH_SSH_SHELLHOST_RESOURCES})
+    add_executable(ssh-shellhost
+        ${OPENSSH_SSH_SHELLHOST_SOURCES}
+        ${OPENSSH_SSH_SHELLHOST_RESOURCES})
 
-set_target_properties(ssh-shellhost PROPERTIES LINK_FLAGS "${C_FLAGS_FORCE_MULTIPLE}")
+    set_target_properties(ssh-shellhost PROPERTIES LINK_FLAGS "${C_FLAGS_FORCE_MULTIPLE}")
 
-target_link_libraries(ssh-shellhost ${OPENSSH_COMMON_LIBRARIES})
+    target_link_libraries(ssh-shellhost ${OPENSSH_COMMON_LIBRARIES})
+endif()
 
 # ssh-sk-helper
 
 set(OPENSSH_SSH_SK_HELPER_SOURCES
     "${OPENSSH_SRC_DIR}/ssh-sk-helper.c"
-    "${OPENSSH_SRC_DIR}/ssh-sk-client.c"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/wmain_common.c")
+    "${OPENSSH_SRC_DIR}/ssh-sk-client.c")
 
-set(OPENSSH_SSH_SK_HELPER_RESOURCES
-    "${OPENSSH_TARGETOS_MANIFEST}"
-    "${OPENSSH_VERSION_RC}")
+if(WIN32)
+    list(APPEND OPENSSH_SSH_SK_HELPER_SOURCES
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/wmain_common.c")
+endif()
+
+if(WIN32)
+    set(OPENSSH_SSH_SK_HELPER_RESOURCES
+        "${OPENSSH_TARGETOS_MANIFEST}"
+        "${OPENSSH_VERSION_RC}")
+endif()
 
 add_executable(ssh-sk-helper
     ${OPENSSH_SSH_SK_HELPER_SOURCES}
     ${OPENSSH_SSH_SK_HELPER_RESOURCES})
 
-set_target_properties(ssh-sk-helper PROPERTIES LINK_FLAGS "${C_FLAGS_ENTRY_POINT} ${C_FLAGS_FORCE_MULTIPLE}")
+if(WIN32)
+    set_target_properties(ssh-sk-helper PROPERTIES LINK_FLAGS "${C_FLAGS_ENTRY_POINT} ${C_FLAGS_FORCE_MULTIPLE}")
+endif()
 
 target_link_libraries(ssh-sk-helper ${OPENSSH_COMMON_LIBRARIES})
 
@@ -948,18 +1054,26 @@ target_link_libraries(ssh-sk-helper ${OPENSSH_COMMON_LIBRARIES})
 set(OPENSSH_SSH_PKCS11_HELPER_SOURCES
     "${OPENSSH_SRC_DIR}/ssh-pkcs11-helper.c"
     "${OPENSSH_SRC_DIR}/ssh-pkcs11.c"
-    "${OPENSSH_SRC_DIR}/ssh-sk-client.c"
-    "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/wmain_common.c")
+    "${OPENSSH_SRC_DIR}/ssh-sk-client.c")
 
-set(OPENSSH_SSH_PKCS11_HELPER_RESOURCES
-    "${OPENSSH_TARGETOS_MANIFEST}"
-    "${OPENSSH_VERSION_RC}")
+if(WIN32)
+    list(APPEND OPENSSH_SSH_PKCS11_HELPER_SOURCES
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/wmain_common.c")
+endif()
+
+if(WIN32)
+    set(OPENSSH_SSH_PKCS11_HELPER_RESOURCES
+        "${OPENSSH_TARGETOS_MANIFEST}"
+        "${OPENSSH_VERSION_RC}")
+endif()
 
 add_executable(ssh-pkcs11-helper
     ${OPENSSH_SSH_PKCS11_HELPER_SOURCES}
     ${OPENSSH_SSH_PKCS11_HELPER_RESOURCES})
 
-set_target_properties(ssh-pkcs11-helper PROPERTIES LINK_FLAGS "${C_FLAGS_ENTRY_POINT} ${C_FLAGS_FORCE_MULTIPLE}")
+if(WIN32)
+    set_target_properties(ssh-pkcs11-helper PROPERTIES LINK_FLAGS "${C_FLAGS_ENTRY_POINT} ${C_FLAGS_FORCE_MULTIPLE}")
+endif()
 
 target_link_libraries(ssh-pkcs11-helper ${OPENSSH_COMMON_LIBRARIES})
 
@@ -1116,9 +1230,12 @@ set(OPENSSH_INSTALL_TARGETS
     "ssh-agent"
     "ssh-keygen"
     "ssh-keyscan"
-    "ssh-shellhost"
     "ssh-sk-helper"
     "ssh-pkcs11-helper")
+
+if(WIN32)
+    list(APPEND OPENSSH_INSTALL_TARGETS "ssh-shellhost")
+endif()
 
 install(TARGETS ${OPENSSH_INSTALL_TARGETS}
     ARCHIVE DESTINATION lib
