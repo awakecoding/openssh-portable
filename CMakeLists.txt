@@ -85,6 +85,8 @@ if(WIN32)
     # posix_compat defines explicit_bzero, freezero, gettimeofday duplicate symbols with libcrypto
     # openbsd_compat defines arc4random, arc4random_buf, arc4random_uniform duplicate symbols with libcrypto
     #set(C_FLAGS_FORCE_MULTIPLE "/FORCE:MULTIPLE /ignore:4006")
+else()
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_XOPEN_SOURCE=600 -D_BSD_SOURCE -D_DEFAULT_SOURCE")
 endif()
 
 # detect prebuilt dependencies
@@ -232,6 +234,9 @@ if(WIN32)
         Netapi32.lib
         Rpcrt4.lib
         ntdll.lib)
+else()
+    set(OPENSSH_SYSTEM_LIBRARIES
+        resolv)
 endif()
 
 # config
@@ -470,6 +475,7 @@ set(OPENSSH_OPENBSD_COMPAT_SOURCES
 
 if(NOT WIN32)
     list(APPEND OPENSSH_OPENBSD_COMPAT_SOURCES
+        "${OPENSSH_SRC_DIR}/openbsd-compat/getrrsetbyname.c"
         "${OPENSSH_SRC_DIR}/openbsd-compat/freezero.c")
 endif()
 
@@ -594,6 +600,9 @@ if(WIN32)
     list(APPEND OPENSSH_LIBSSH_SOURCES
         "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/ttymodes_windows.c"
         "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/w32-sshfileperm.c")
+else()
+    list(APPEND OPENSSH_LIBSSH_SOURCES
+        "${OPENSSH_SRC_DIR}/umac128.c")
 endif()
 
 if(USE_OPENSSL)
@@ -674,6 +683,7 @@ else()
     list(APPEND OPENSSH_SSH_SOURCES
         "${OPENSSH_SRC_DIR}/sshtty.c"
         "${OPENSSH_SRC_DIR}/ttymodes.c"
+        "${OPENSSH_SRC_DIR}/uidswap.c"
         "${OPENSSH_SRC_DIR}/mux.c"
         "${OPENSSH_SRC_DIR}/utf8.c")
 endif()
