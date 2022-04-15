@@ -87,6 +87,7 @@ if(WIN32)
     #set(C_FLAGS_FORCE_MULTIPLE "/FORCE:MULTIPLE /ignore:4006")
 else()
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_XOPEN_SOURCE=600 -D_BSD_SOURCE -D_DEFAULT_SOURCE")
+    #set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Werror-implicit-function-declaration")
 endif()
 
 # detect prebuilt dependencies
@@ -236,7 +237,7 @@ if(WIN32)
         ntdll.lib)
 else()
     set(OPENSSH_SYSTEM_LIBRARIES
-        resolv)
+        resolv util crypt)
 endif()
 
 # config
@@ -476,6 +477,7 @@ set(OPENSSH_OPENBSD_COMPAT_SOURCES
 if(NOT WIN32)
     list(APPEND OPENSSH_OPENBSD_COMPAT_SOURCES
         "${OPENSSH_SRC_DIR}/openbsd-compat/getrrsetbyname.c"
+        "${OPENSSH_SRC_DIR}/openbsd-compat/pwcache.c"
         "${OPENSSH_SRC_DIR}/openbsd-compat/freezero.c")
 endif()
 
@@ -602,7 +604,10 @@ if(WIN32)
         "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/w32-sshfileperm.c")
 else()
     list(APPEND OPENSSH_LIBSSH_SOURCES
-        "${OPENSSH_SRC_DIR}/umac128.c")
+        "${OPENSSH_SRC_DIR}/ttymodes.c"
+        "${OPENSSH_SRC_DIR}/uidswap.c"
+        "${OPENSSH_SRC_DIR}/umac128.c"
+        "${OPENSSH_SRC_DIR}/mux.c")
 endif()
 
 if(USE_OPENSSL)
@@ -676,15 +681,12 @@ set(OPENSSH_SSH_SOURCES
 
 if(WIN32)
     list(APPEND OPENSSH_SSH_SOURCES
-        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/win32_sshtty.c"
         "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/wmain_common.c"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/win32_sshtty.c"
         "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/win32-utf8.c")
 else()
     list(APPEND OPENSSH_SSH_SOURCES
         "${OPENSSH_SRC_DIR}/sshtty.c"
-        "${OPENSSH_SRC_DIR}/ttymodes.c"
-        "${OPENSSH_SRC_DIR}/uidswap.c"
-        "${OPENSSH_SRC_DIR}/mux.c"
         "${OPENSSH_SRC_DIR}/utf8.c")
 endif()
 
@@ -829,6 +831,13 @@ if(WIN32)
         "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/wmain_sshd.c"
         "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/w32-doexec.c"
         "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/win32-utf8.c")
+else()
+    list(APPEND OPENSSH_SSHD_SOURCES
+        "${OPENSSH_SRC_DIR}/sftp-realpath.c"
+        "${OPENSSH_SRC_DIR}/sftp-server.c"
+        "${OPENSSH_SRC_DIR}/groupaccess.c"
+        "${OPENSSH_SRC_DIR}/sshpty.c"
+        "${OPENSSH_SRC_DIR}/utf8.c")
 endif()
 
 set(OPENSSH_SSHD_RESOURCES
@@ -857,6 +866,9 @@ if(WIN32)
     list(APPEND OPENSSH_SCP_SOURCES
         "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/wmain_common.c"
         "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/win32-utf8.c")
+else()
+    list(APPEND OPENSSH_SCP_SOURCES
+        "${OPENSSH_SRC_DIR}/utf8.c")
 endif()
 
 set(OPENSSH_SCP_RESOURCES
@@ -886,6 +898,9 @@ if(WIN32)
     list(APPEND OPENSSH_SFTP_SOURCES
         "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/wmain_common.c"
         "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/win32-utf8.c")
+else()
+    list(APPEND OPENSSH_SFTP_SOURCES
+        "${OPENSSH_SRC_DIR}/utf8.c")
 endif()
 
 set(OPENSSH_SFTP_RESOURCES
@@ -912,6 +927,10 @@ set(OPENSSH_SFTP_SERVER_SOURCES
 if(WIN32)
     list(APPEND OPENSSH_SFTP_SERVER_SOURCES
         "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/wmain_common.c")
+else()
+    list(APPEND OPENSSH_SFTP_SERVER_SOURCES
+        "${OPENSSH_SRC_DIR}/sftp-realpath.c"
+        "${OPENSSH_SRC_DIR}/utf8.c")
 endif()
 
 set(OPENSSH_SFTP_SERVER_RESOURCES
@@ -938,6 +957,9 @@ if(WIN32)
     list(APPEND OPENSSH_SSH_ADD_SOURCES
         "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/win32-utf8.c"
         "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/wmain_common.c")
+else()
+    list(APPEND OPENSSH_SSH_ADD_SOURCES
+        "${OPENSSH_SRC_DIR}/utf8.c")
 endif()
 
 set(OPENSSH_SSH_ADD_RESOURCES
@@ -966,6 +988,9 @@ if(WIN32)
         "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/ssh-agent/agent.c"
         "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/ssh-agent/connection.c"
         "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/ssh-agent/keyagent-request.c")
+else()
+    list(APPEND OPENSSH_SSH_AGENT_SOURCES
+        "${OPENSSH_SRC_DIR}/ssh-agent.c")
 endif()
 
 if(WIN32)
@@ -995,6 +1020,9 @@ if(WIN32)
     list(APPEND OPENSSH_SSH_KEYGEN_SOURCES
         "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/win32-utf8.c"
         "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/wmain_common.c")
+else()
+    list(APPEND OPENSSH_SSH_KEYGEN_SOURCES
+        "${OPENSSH_SRC_DIR}/utf8.c")
 endif()
 
 set(OPENSSH_SSH_KEYGEN_RESOURCES
