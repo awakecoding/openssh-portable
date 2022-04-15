@@ -144,13 +144,15 @@ ssh_askpass(char *askpass, const char *msg, const char *env_hint)
 /* private/internal read_passphrase flags */
 #define RP_ASK_PERMISSION	0x8000 /* pass hint to askpass for confirm UI */
 
+#ifdef HAVE_SYS_UN_H
+#include <sys/un.h>
+#endif
+
 char *
 read_passphrase_named_pipe()
 {
 	size_t len;
 	char *pass;
-	HANDLE np_handle;
-	DWORD cb_read;
 	char buf[1024];
 	char filename[1024];
 	const char *np_name;
@@ -159,6 +161,42 @@ read_passphrase_named_pipe()
 
 	if (!np_name)
 		return NULL;
+
+#ifndef WINDOWS
+	int status;
+	int np_handle;
+	int cb_read;
+	struct sockaddr_un s;
+
+	np_handle = socket(PF_LOCAL, SOCK_STREAM, 0);
+	
+	if (np_handle < 0) {
+		return NULL;
+	}
+
+	memset(&s, 0, sizeof(struct sockaddr_un));
+	s.sun_family = AF_UNIX;
+	snprintf(s.sun_path, sizeof(s.sun_path) - 1, "%s", np_name);
+
+	status = connect(np_handle, (struct sockaddr*) &s, sizeof(struct sockaddr_un));
+
+	if (status < 0) {
+		return NULL;
+	}
+
+	len = 0;
+	do {
+		if ((cb_read = read(np_handle, buf, sizeof(buf) - 1)) <= 0) {
+			break;
+		}
+		len += cb_read;
+	} while (sizeof(buf) - 1 - len > 0);
+	buf[len] = '\0';
+
+	close(np_handle);
+#else
+	HANDLE np_handle;
+	DWORD cb_read;
 
 	sprintf_s(filename, sizeof(filename) - 1, "\\\\.\\pipe\\%s", np_name);
 
@@ -178,6 +216,7 @@ read_passphrase_named_pipe()
 	buf[len] = '\0';
 
 	CloseHandle(np_handle);
+#endif
 
 	buf[strcspn(buf, "\r\n")] = '\0';
 	pass = xstrdup(buf);
