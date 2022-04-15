@@ -81,12 +81,10 @@ if(WIN32)
 
     # required for all executables except ssh-shellhost
     set(C_FLAGS_ENTRY_POINT "/ENTRY:wmainCRTStartup")
-
-    # posix_compat defines explicit_bzero, freezero, gettimeofday duplicate symbols with libcrypto
-    # openbsd_compat defines arc4random, arc4random_buf, arc4random_uniform duplicate symbols with libcrypto
-    #set(C_FLAGS_FORCE_MULTIPLE "/FORCE:MULTIPLE /ignore:4006")
 else()
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_XOPEN_SOURCE=600 -D_BSD_SOURCE -D_DEFAULT_SOURCE")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Werror-implicit-function-declaration")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-format-truncation -Wno-incompatible-pointer-types")
 endif()
 
 # detect prebuilt dependencies
@@ -236,7 +234,7 @@ if(WIN32)
         ntdll.lib)
 else()
     set(OPENSSH_SYSTEM_LIBRARIES
-        resolv)
+        resolv util crypt)
 endif()
 
 # config
@@ -476,6 +474,7 @@ set(OPENSSH_OPENBSD_COMPAT_SOURCES
 if(NOT WIN32)
     list(APPEND OPENSSH_OPENBSD_COMPAT_SOURCES
         "${OPENSSH_SRC_DIR}/openbsd-compat/getrrsetbyname.c"
+        "${OPENSSH_SRC_DIR}/openbsd-compat/pwcache.c"
         "${OPENSSH_SRC_DIR}/openbsd-compat/freezero.c")
 endif()
 
@@ -602,7 +601,10 @@ if(WIN32)
         "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/w32-sshfileperm.c")
 else()
     list(APPEND OPENSSH_LIBSSH_SOURCES
-        "${OPENSSH_SRC_DIR}/umac128.c")
+        "${OPENSSH_SRC_DIR}/ttymodes.c"
+        "${OPENSSH_SRC_DIR}/uidswap.c"
+        "${OPENSSH_SRC_DIR}/umac128.c"
+        "${OPENSSH_SRC_DIR}/mux.c")
 endif()
 
 if(USE_OPENSSL)
@@ -676,15 +678,12 @@ set(OPENSSH_SSH_SOURCES
 
 if(WIN32)
     list(APPEND OPENSSH_SSH_SOURCES
-        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/win32_sshtty.c"
         "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/wmain_common.c"
+        "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/win32_sshtty.c"
         "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/win32-utf8.c")
 else()
     list(APPEND OPENSSH_SSH_SOURCES
         "${OPENSSH_SRC_DIR}/sshtty.c"
-        "${OPENSSH_SRC_DIR}/ttymodes.c"
-        "${OPENSSH_SRC_DIR}/uidswap.c"
-        "${OPENSSH_SRC_DIR}/mux.c"
         "${OPENSSH_SRC_DIR}/utf8.c")
 endif()
 
@@ -829,6 +828,13 @@ if(WIN32)
         "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/wmain_sshd.c"
         "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/w32-doexec.c"
         "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/win32-utf8.c")
+else()
+    list(APPEND OPENSSH_SSHD_SOURCES
+        "${OPENSSH_SRC_DIR}/sftp-realpath.c"
+        "${OPENSSH_SRC_DIR}/sftp-server.c"
+        "${OPENSSH_SRC_DIR}/groupaccess.c"
+        "${OPENSSH_SRC_DIR}/sshpty.c"
+        "${OPENSSH_SRC_DIR}/utf8.c")
 endif()
 
 set(OPENSSH_SSHD_RESOURCES
@@ -840,7 +846,7 @@ add_executable(sshd
     ${OPENSSH_SSHD_RESOURCES})
 
 if(WIN32)
-    set_target_properties(sshd PROPERTIES LINK_FLAGS "${C_FLAGS_ENTRY_POINT} /ignore:4099 ${C_FLAGS_FORCE_MULTIPLE}")
+    set_target_properties(sshd PROPERTIES LINK_FLAGS "${C_FLAGS_ENTRY_POINT} /ignore:4099")
 endif()
 
 target_link_libraries(sshd ${OPENSSH_COMMON_LIBRARIES})
@@ -857,6 +863,9 @@ if(WIN32)
     list(APPEND OPENSSH_SCP_SOURCES
         "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/wmain_common.c"
         "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/win32-utf8.c")
+else()
+    list(APPEND OPENSSH_SCP_SOURCES
+        "${OPENSSH_SRC_DIR}/utf8.c")
 endif()
 
 set(OPENSSH_SCP_RESOURCES
@@ -886,6 +895,9 @@ if(WIN32)
     list(APPEND OPENSSH_SFTP_SOURCES
         "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/wmain_common.c"
         "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/win32-utf8.c")
+else()
+    list(APPEND OPENSSH_SFTP_SOURCES
+        "${OPENSSH_SRC_DIR}/utf8.c")
 endif()
 
 set(OPENSSH_SFTP_RESOURCES
@@ -912,6 +924,10 @@ set(OPENSSH_SFTP_SERVER_SOURCES
 if(WIN32)
     list(APPEND OPENSSH_SFTP_SERVER_SOURCES
         "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/wmain_common.c")
+else()
+    list(APPEND OPENSSH_SFTP_SERVER_SOURCES
+        "${OPENSSH_SRC_DIR}/sftp-realpath.c"
+        "${OPENSSH_SRC_DIR}/utf8.c")
 endif()
 
 set(OPENSSH_SFTP_SERVER_RESOURCES
@@ -938,6 +954,9 @@ if(WIN32)
     list(APPEND OPENSSH_SSH_ADD_SOURCES
         "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/win32-utf8.c"
         "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/wmain_common.c")
+else()
+    list(APPEND OPENSSH_SSH_ADD_SOURCES
+        "${OPENSSH_SRC_DIR}/utf8.c")
 endif()
 
 set(OPENSSH_SSH_ADD_RESOURCES
@@ -949,7 +968,7 @@ add_executable(ssh-add
     ${OPENSSH_SSH_ADD_RESOURCES})
 
 if(WIN32)
-    set_target_properties(ssh-add PROPERTIES LINK_FLAGS "${C_FLAGS_ENTRY_POINT} ${C_FLAGS_FORCE_MULTIPLE}")
+    set_target_properties(ssh-add PROPERTIES LINK_FLAGS "${C_FLAGS_ENTRY_POINT}")
 endif()
 
 target_link_libraries(ssh-add ${OPENSSH_COMMON_LIBRARIES})
@@ -966,6 +985,9 @@ if(WIN32)
         "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/ssh-agent/agent.c"
         "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/ssh-agent/connection.c"
         "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/ssh-agent/keyagent-request.c")
+else()
+    list(APPEND OPENSSH_SSH_AGENT_SOURCES
+        "${OPENSSH_SRC_DIR}/ssh-agent.c")
 endif()
 
 if(WIN32)
@@ -995,6 +1017,9 @@ if(WIN32)
     list(APPEND OPENSSH_SSH_KEYGEN_SOURCES
         "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/win32-utf8.c"
         "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/wmain_common.c")
+else()
+    list(APPEND OPENSSH_SSH_KEYGEN_SOURCES
+        "${OPENSSH_SRC_DIR}/utf8.c")
 endif()
 
 set(OPENSSH_SSH_KEYGEN_RESOURCES
@@ -1006,7 +1031,7 @@ add_executable(ssh-keygen
     ${OPENSSH_SSH_KEY_RESOURCES})
 
 if(WIN32)
-    set_target_properties(ssh-keygen PROPERTIES LINK_FLAGS "${C_FLAGS_ENTRY_POINT} ${C_FLAGS_FORCE_MULTIPLE}")
+    set_target_properties(ssh-keygen PROPERTIES LINK_FLAGS "${C_FLAGS_ENTRY_POINT}")
 endif()
 
 target_link_libraries(ssh-keygen ${OPENSSH_COMMON_LIBRARIES})
@@ -1033,7 +1058,7 @@ add_executable(ssh-keyscan
     ${OPENSSH_SSH_KEYSCAN_RESOURCES})
 
 if(WIN32)
-    set_target_properties(ssh-keyscan PROPERTIES LINK_FLAGS "${C_FLAGS_ENTRY_POINT} ${C_FLAGS_FORCE_MULTIPLE}")
+    set_target_properties(ssh-keyscan PROPERTIES LINK_FLAGS "${C_FLAGS_ENTRY_POINT}")
 endif()
 
 target_link_libraries(ssh-keyscan ${OPENSSH_COMMON_LIBRARIES})
@@ -1080,7 +1105,7 @@ add_executable(ssh-sk-helper
     ${OPENSSH_SSH_SK_HELPER_RESOURCES})
 
 if(WIN32)
-    set_target_properties(ssh-sk-helper PROPERTIES LINK_FLAGS "${C_FLAGS_ENTRY_POINT} ${C_FLAGS_FORCE_MULTIPLE}")
+    set_target_properties(ssh-sk-helper PROPERTIES LINK_FLAGS "${C_FLAGS_ENTRY_POINT}")
 endif()
 
 target_link_libraries(ssh-sk-helper ${OPENSSH_COMMON_LIBRARIES})
@@ -1108,7 +1133,7 @@ add_executable(ssh-pkcs11-helper
     ${OPENSSH_SSH_PKCS11_HELPER_RESOURCES})
 
 if(WIN32)
-    set_target_properties(ssh-pkcs11-helper PROPERTIES LINK_FLAGS "${C_FLAGS_ENTRY_POINT} ${C_FLAGS_FORCE_MULTIPLE}")
+    set_target_properties(ssh-pkcs11-helper PROPERTIES LINK_FLAGS "${C_FLAGS_ENTRY_POINT}")
 endif()
 
 target_link_libraries(ssh-pkcs11-helper ${OPENSSH_COMMON_LIBRARIES})
@@ -1127,7 +1152,7 @@ if(WITH_UNIT_TESTS)
         "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/wmain_common.c")
 
     add_executable(unit-test-bitmap ${OPENSSH_UNIT_TEST_BITMAP_SOURCES})
-    set_target_properties(unit-test-bitmap PROPERTIES LINK_FLAGS "${C_FLAGS_ENTRY_POINT} ${C_FLAGS_FORCE_MULTIPLE}")
+    set_target_properties(unit-test-bitmap PROPERTIES LINK_FLAGS "${C_FLAGS_ENTRY_POINT}")
     target_link_libraries(unit-test-bitmap ${OPENSSH_COMMON_LIBRARIES})
     list(APPEND OPENSSH_TEST_TARGETS "unit-test-bitmap")
 
@@ -1142,7 +1167,7 @@ if(WITH_UNIT_TESTS)
         "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/wmain_common.c")
 
     add_executable(unit-test-hostkeys ${OPENSSH_UNIT_TEST_HOSTKEYS_SOURCES})
-    set_target_properties(unit-test-hostkeys PROPERTIES LINK_FLAGS "${C_FLAGS_ENTRY_POINT} ${C_FLAGS_FORCE_MULTIPLE}")
+    set_target_properties(unit-test-hostkeys PROPERTIES LINK_FLAGS "${C_FLAGS_ENTRY_POINT}")
     target_link_libraries(unit-test-hostkeys ${OPENSSH_COMMON_LIBRARIES})
     list(APPEND OPENSSH_TEST_TARGETS "unit-test-hostkeys")
 
@@ -1156,7 +1181,7 @@ if(WITH_UNIT_TESTS)
         "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/wmain_common.c")
 
     add_executable(unit-test-kex ${OPENSSH_UNIT_TEST_KEX_SOURCES})
-    set_target_properties(unit-test-kex PROPERTIES LINK_FLAGS "${C_FLAGS_ENTRY_POINT} ${C_FLAGS_FORCE_MULTIPLE}")
+    set_target_properties(unit-test-kex PROPERTIES LINK_FLAGS "${C_FLAGS_ENTRY_POINT}")
     target_link_libraries(unit-test-kex ${OPENSSH_COMMON_LIBRARIES})
     list(APPEND OPENSSH_TEST_TARGETS "unit-test-kex")
 
@@ -1168,7 +1193,7 @@ if(WITH_UNIT_TESTS)
         "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/wmain_common.c")
 
     add_executable(unit-test-match ${OPENSSH_UNIT_TEST_MATCH_SOURCES})
-    set_target_properties(unit-test-match PROPERTIES LINK_FLAGS "${C_FLAGS_ENTRY_POINT} ${C_FLAGS_FORCE_MULTIPLE}")
+    set_target_properties(unit-test-match PROPERTIES LINK_FLAGS "${C_FLAGS_ENTRY_POINT}")
     target_link_libraries(unit-test-match ${OPENSSH_COMMON_LIBRARIES})
     list(APPEND OPENSSH_TEST_TARGETS "unit-test-match")
 
@@ -1186,7 +1211,7 @@ if(WITH_UNIT_TESTS)
         "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/wmain_common.c")
 
     add_executable(unit-test-misc ${OPENSSH_UNIT_TEST_MISC_SOURCES})
-    set_target_properties(unit-test-misc PROPERTIES LINK_FLAGS "${C_FLAGS_ENTRY_POINT} ${C_FLAGS_FORCE_MULTIPLE}")
+    set_target_properties(unit-test-misc PROPERTIES LINK_FLAGS "${C_FLAGS_ENTRY_POINT}")
     target_link_libraries(unit-test-misc ${OPENSSH_COMMON_LIBRARIES})
     list(APPEND OPENSSH_TEST_TARGETS "unit-test-misc")
 
@@ -1206,7 +1231,7 @@ if(WITH_UNIT_TESTS)
         "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/wmain_common.c")
 
     add_executable(unit-test-sshbuf ${OPENSSH_UNIT_TEST_SSHBUF_SOURCES})
-    set_target_properties(unit-test-sshbuf PROPERTIES LINK_FLAGS "${C_FLAGS_ENTRY_POINT} ${C_FLAGS_FORCE_MULTIPLE}")
+    set_target_properties(unit-test-sshbuf PROPERTIES LINK_FLAGS "${C_FLAGS_ENTRY_POINT}")
     target_link_libraries(unit-test-sshbuf ${OPENSSH_COMMON_LIBRARIES})
     list(APPEND OPENSSH_TEST_TARGETS "unit-test-sshbuf")
 
@@ -1225,7 +1250,7 @@ if(WITH_UNIT_TESTS)
         "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/wmain_common.c")
 
     add_executable(unit-test-sshkey ${OPENSSH_UNIT_TEST_SSHKEY_SOURCES})
-    set_target_properties(unit-test-sshkey PROPERTIES LINK_FLAGS "${C_FLAGS_ENTRY_POINT} ${C_FLAGS_FORCE_MULTIPLE}")
+    set_target_properties(unit-test-sshkey PROPERTIES LINK_FLAGS "${C_FLAGS_ENTRY_POINT}")
     target_link_libraries(unit-test-sshkey ${OPENSSH_COMMON_LIBRARIES})
     list(APPEND OPENSSH_TEST_TARGETS "unit-test-sshkey")
 
@@ -1243,7 +1268,7 @@ if(WITH_UNIT_TESTS)
         "${OPENSSH_SRC_DIR}/contrib/win32/win32compat/wmain_common.c")
 
     add_executable(unit-test-win32compat ${OPENSSH_UNIT_TEST_WIN32COMPAT_SOURCES})
-    set_target_properties(unit-test-win32compat PROPERTIES LINK_FLAGS "${C_FLAGS_ENTRY_POINT} ${C_FLAGS_FORCE_MULTIPLE}")
+    set_target_properties(unit-test-win32compat PROPERTIES LINK_FLAGS "${C_FLAGS_ENTRY_POINT}")
     target_link_libraries(unit-test-win32compat ${OPENSSH_COMMON_LIBRARIES})
     list(APPEND OPENSSH_TEST_TARGETS "unit-test-win32compat")
 
