@@ -87,7 +87,8 @@ if(WIN32)
     #set(C_FLAGS_FORCE_MULTIPLE "/FORCE:MULTIPLE /ignore:4006")
 else()
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_XOPEN_SOURCE=600 -D_BSD_SOURCE -D_DEFAULT_SOURCE")
-    #set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Werror-implicit-function-declaration")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Werror-implicit-function-declaration")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-format-truncation -Wno-incompatible-pointer-types")
 endif()
 
 # detect prebuilt dependencies
