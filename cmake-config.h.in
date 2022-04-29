@@ -307,7 +307,7 @@
 #cmakedefine HAVE_CRYPTO_SHA2_H
 
 /* Define to 1 if you have the <crypt.h> header file. */
-#cmakedefine01 HAVE_CRYPT_H
+#cmakedefine HAVE_CRYPT_H
 
 /* Define if you are on Cygwin */
 #cmakedefine HAVE_CYGWIN
