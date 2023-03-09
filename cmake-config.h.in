@@ -184,16 +184,16 @@
 #cmakedefine HAVE_ACCRIGHTS_IN_MSGHDR
 
 /* Define if you have ut_addr in utmp.h */
-#cmakedefine01 HAVE_ADDR_IN_UTMP
+#cmakedefine HAVE_ADDR_IN_UTMP
 
 /* Define if you have ut_addr in utmpx.h */
-#cmakedefine01 HAVE_ADDR_IN_UTMPX
+#cmakedefine HAVE_ADDR_IN_UTMPX
 
 /* Define if you have ut_addr_v6 in utmp.h */
-#cmakedefine01 HAVE_ADDR_V6_IN_UTMP
+#cmakedefine HAVE_ADDR_V6_IN_UTMP
 
 /* Define if you have ut_addr_v6 in utmpx.h */
-#cmakedefine01 HAVE_ADDR_V6_IN_UTMPX
+#cmakedefine HAVE_ADDR_V6_IN_UTMPX
 
 /* Define to 1 if you have the `arc4random' function. */
 #cmakedefine HAVE_ARC4RANDOM
@@ -206,6 +206,9 @@
 
 /* Define to 1 if you have the `arc4random_uniform' function. */
 #cmakedefine HAVE_ARC4RANDOM_UNIFORM
+
+/* Define to 1 if libcrypto exports arc4random functions. */
+#cmakedefine HAVE_ARC4RANDOM_LIBCRYPTO
 
 /* Define to 1 if you have the `asprintf' function. */
 #cmakedefine01 HAVE_ASPRINTF

@@ -83,10 +83,12 @@ if(WIN32)
     # required for all executables except ssh-shellhost
     set(C_FLAGS_ENTRY_POINT "/ENTRY:wmainCRTStartup")
 else()
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_XOPEN_SOURCE=600 -D_BSD_SOURCE -D_DEFAULT_SOURCE")
-
     if(APPLE)
         set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_DARWIN_C_SOURCE")
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-deprecated-declarations")
+        #set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-unguarded-availability-new")
+    else()
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_XOPEN_SOURCE=600 -D_BSD_SOURCE -D_DEFAULT_SOURCE")
     endif()
 
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Werror-implicit-function-declaration")
@@ -150,9 +152,11 @@ find_path(ZLIB_INCLUDE_DIR
         "${OPENSSH_DEPS_DIR}/ZLib/sdk")
 
 find_library(ZLIB_LIBRARY
-    NAMES zlib z
-    HINTS ${ZLIB_LIBRARY_DIR}
-        "${OPENSSH_DEPS_DIR}/ZLib/bin/${TARGET_ARCH}")
+    NAMES libz.a zlib z
+    PATHS ${ZLIB_LIBRARY_DIR}
+        "${OPENSSH_DEPS_DIR}/ZLib/bin/${TARGET_ARCH}"
+    NO_CMAKE_FIND_ROOT_PATH
+    REQUIRED)
 
 get_filename_component(ZLIB_LIBRARY_DIR ${ZLIB_LIBRARY} DIRECTORY CACHE)
 
@@ -168,9 +172,11 @@ find_path(LIBRESSL_INCLUDE_DIR
         "${OPENSSH_DEPS_DIR}/LibreSSL/sdk/include")
 
 find_library(LIBRESSL_LIBRARY
-    NAMES libcrypto crypto
+    NAMES libcrypto.a crypto.lib libcrypto crypto
     HINTS ${LIBRESSL_LIBRARY_DIR}
-        "${OPENSSH_DEPS_DIR}/LibreSSL/bin/desktop/${TARGET_ARCH}")
+        "${OPENSSH_DEPS_DIR}/LibreSSL/bin/desktop/${TARGET_ARCH}"
+    NO_CMAKE_FIND_ROOT_PATH
+    REQUIRED)
 
 get_filename_component(LIBRESSL_LIBRARY_DIR ${LIBRESSL_LIBRARY} DIRECTORY CACHE)
 
@@ -186,9 +192,11 @@ find_path(FIDO2_INCLUDE_DIR
         "${OPENSSH_DEPS_DIR}/libfido2")
 
 find_library(FIDO2_LIBRARY
-    NAMES libfido2 fido2
+    NAMES libfido2.a fido2.lib fido2
     HINTS ${FIDO2_LIBRARY_DIR}
-        "${OPENSSH_DEPS_DIR}/libfido2/${FIDO2_ARCH}/Release/static")
+        "${OPENSSH_DEPS_DIR}/libfido2/${FIDO2_ARCH}/Release/static"
+    CMAKE_FIND_ROOT_PATH_BOTH
+    REQUIRED)
 
 get_filename_component(FIDO2_LIBRARY_DIR ${FIDO2_LIBRARY} DIRECTORY CACHE)
 
@@ -208,9 +216,11 @@ find_path(CBOR_INCLUDE_DIR
         "${OPENSSH_DEPS_DIR}/libfido2")
 
 find_library(CBOR_LIBRARY
-    NAMES "cbor.lib"
+    NAMES libcbor.a cbor.lib cbor
     HINTS ${CBOR_LIBRARY_DIR}
-        "${OPENSSH_DEPS_DIR}/libfido2/${FIDO2_ARCH}/Release/static")
+        "${OPENSSH_DEPS_DIR}/libfido2/${FIDO2_ARCH}/Release/static"
+    CMAKE_FIND_ROOT_PATH_BOTH
+    REQUIRED)
 
 get_filename_component(CBOR_LIBRARY_DIR ${CBOR_LIBRARY} DIRECTORY CACHE)
 
@@ -249,8 +259,11 @@ if(WIN32)
         Rpcrt4.lib
         ntdll.lib)
 else()
-    set(OPENSSH_SYSTEM_LIBRARIES
-        resolv util crypt)
+    set(OPENSSH_SYSTEM_LIBRARIES resolv util)
+    if(NOT APPLE)
+        list(APPEND OPENSSH_SYSTEM_LIBRARIES crypt)
+    endif()
+    list(APPEND OPENSSH_SYSTEM_LIBRARIES pthread)
 endif()
 
 # config
@@ -337,8 +350,8 @@ else()
     set(HAVE_ERRX 1)
     set(HAVE_EVP_CHACHA20 1)
     set(HAVE_EVP_CIPHER_CTX_CTRL 1)
-    set(HAVE_EVP_CIPHER_CTX_IV 1)
-    set(HAVE_EVP_CIPHER_CTX_IV_NOCONST 1)
+    set(HAVE_EVP_CIPHER_CTX_IV 0)
+    set(HAVE_EVP_CIPHER_CTX_IV_NOCONST 0)
     set(HAVE_EVP_DIGESTFINAL_EX 1)
     set(HAVE_EVP_DIGESTINIT_EX 1)
     set(HAVE_EVP_MD_CTX_COPY_EX 1)
@@ -646,6 +659,7 @@ else()
     check_include_files("shadow.h" HAVE_SHADOW_H)
     check_include_files("libgen.h" HAVE_LIBGEN_H)
     check_include_files("libproc.h" HAVE_LIBPROC_H)
+    check_include_files("bsd/libutil.h" HAVE_BSD_LIBUTIL_H)
     check_include_files("libutil.h" HAVE_LIBUTIL_H)
 
     set(HAVE_U_CHAR 1)
@@ -663,22 +677,45 @@ else()
     endif()
 
     if(APPLE)
+        set(USE_BTMP 0)
+        set(USE_UTMPX 0)
+        set(HAVE_CRYPT 0)
+        set(HAVE_PRCTL 0)
+        set(HAVE_PPOLL 0)
+        set(HAVE_LOGIN 0)
+        set(HAVE_LOGOUT 0)
+        set(HAVE_LOGWTMP 0)
+        set(HAVE_OPENPTY 0)
         set(HAVE_STRLCPY 1)
         set(HAVE_STRLCAT 1)
-        set(HAVE_STRTONUM 0)
+        set(HAVE_STRTONUM 1)
+        set(HAVE_SETREGID 0)
+        set(HAVE_SETRESGID 0)
+        set(HAVE_SETRESUID 0)
+        set(HAVE_SETREUID 0)
+        set(HAVE_SETUTENT 0)
+        set(HAVE_SETUTXENT 0)
+        set(HAVE_TV_IN_UTMP 0)
+        set(HAVE_ID_IN_UTMP 0)
+        set(HAVE_PID_IN_UTMP 0)
+        set(HAVE_TYPE_IN_UTMP 0)
+        set(HAVE_ADDR_IN_UTMP 0)
+        set(HAVE_ADDR_IN_UTMPX 0)
+        set(HAVE_ADDR_V6_IN_UTMP 0)
+        set(HAVE_ADDR_V6_IN_UTMPX 0)
+        set(HAVE_STRUCT_STAT_ST_MTIM 0)
+        set(HAVE_GETOPT_OPTRESET 1)
         set(HAVE_GETPAGESIZE 0)
         set(HAVE_REALLOCARRAY 0)
         set(HAVE_EXPLICIT_BZERO 0)
-        set(HAVE_EVP_CIPHER_CTX_IV 0)
-        set(HAVE_EVP_CIPHER_CTX_IV_NOCONST 0)
-    endif()
-
-    if(ANDROID)
+        set(SANDBOX_DARWIN 1)
+        set(SANDBOX_SECCOMP_FILTER 0)
+    elseif(ANDROID)
         set(DISABLE_SHADOW 1)
         set(HAVE_REALLOCARRAY 0)
         set(HAVE_EXPLICIT_BZERO 1)
-        set(HAVE_EVP_CIPHER_CTX_IV 0)
-        set(HAVE_EVP_CIPHER_CTX_IV_NOCONST 0)
+    else() # Linux
+        set(HAVE_ARC4RANDOM_LIBCRYPTO 1)
     endif()
 
     configure_file("${OPENSSH_SRC_DIR}/cmake-config.h.in"

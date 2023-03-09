@@ -37,6 +37,20 @@
 # include <sys/random.h>
 #endif
 
+#ifdef HAVE_ARC4RANDOM_LIBCRYPTO
+#ifndef HAVE_ARC4RANDOM
+#define HAVE_ARC4RANDOM
+#endif
+#ifndef HAVE_ARC4RANDOM_BUF
+#define HAVE_ARC4RANDOM_BUF
+#endif
+#ifndef HAVE_ARC4RANDOM_UNIFORM
+#define HAVE_ARC4RANDOM_UNIFORM
+#endif
+#undef HAVE_ARC4RANDOM_STIR
+void arc4random_stir(void) { }
+#endif
+
 #ifndef HAVE_ARC4RANDOM
 
 #define MINIMUM(a, b)    (((a) < (b)) ? (a) : (b))
