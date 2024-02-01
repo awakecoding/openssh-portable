@@ -73,6 +73,11 @@
 #define SSH_ASKPASS_REQUIRE_ENV		"SSH_ASKPASS_REQUIRE"
 
 /*
+ * Named pipe to be used instead of askpass executable
+ */
+#define SSH_ASKPASS_NAMED_PIPE_ENV		"SSH_ASKPASS_NAMED_PIPE"
+
+/*
  * Force host key length and server key length to differ by at least this
  * many bits.  This is to make double encryption with rsaref work.
  */
