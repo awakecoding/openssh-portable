@@ -144,6 +144,87 @@ ssh_askpass(char *askpass, const char *msg, const char *env_hint)
 /* private/internal read_passphrase flags */
 #define RP_ASK_PERMISSION	0x8000 /* pass hint to askpass for confirm UI */
 
+#ifdef HAVE_SYS_UN_H
+#include <sys/un.h>
+#endif
+
+char *
+read_passphrase_named_pipe()
+{
+	size_t len;
+	char *pass;
+	char buf[1024];
+	char filename[1024];
+	const char *np_name;
+
+	np_name = getenv(SSH_ASKPASS_NAMED_PIPE_ENV);
+
+	if (!np_name)
+		return NULL;
+
+#ifndef WINDOWS
+	int status;
+	int np_handle;
+	int cb_read;
+	struct sockaddr_un s;
+
+	np_handle = socket(PF_LOCAL, SOCK_STREAM, 0);
+	
+	if (np_handle < 0) {
+		return NULL;
+	}
+
+	memset(&s, 0, sizeof(struct sockaddr_un));
+	s.sun_family = AF_UNIX;
+	snprintf(s.sun_path, sizeof(s.sun_path) - 1, "%s", np_name);
+
+	status = connect(np_handle, (struct sockaddr*) &s, sizeof(struct sockaddr_un));
+
+	if (status < 0) {
+		return NULL;
+	}
+
+	len = 0;
+	do {
+		if ((cb_read = read(np_handle, buf, sizeof(buf) - 1)) <= 0) {
+			break;
+		}
+		len += cb_read;
+	} while (sizeof(buf) - 1 - len > 0);
+	buf[len] = '\0';
+
+	close(np_handle);
+#else
+	HANDLE np_handle;
+	DWORD cb_read;
+
+	sprintf_s(filename, sizeof(filename) - 1, "\\\\.\\pipe\\%s", np_name);
+
+	np_handle = CreateFileA(filename, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
+
+	if (np_handle == INVALID_HANDLE_VALUE) {
+		return NULL;
+	}
+
+	len = 0;
+	do {
+		if (!ReadFile(np_handle, buf, sizeof(buf) - 1, &cb_read, NULL)) {
+			break;
+		}
+		len += cb_read;
+	} while (sizeof(buf) - 1 - len > 0);
+	buf[len] = '\0';
+
+	CloseHandle(np_handle);
+#endif
+
+	buf[strcspn(buf, "\r\n")] = '\0';
+	pass = xstrdup(buf);
+	explicit_bzero(buf, sizeof(buf));
+
+	return pass;
+}
+
 /*
  * Reads a passphrase from /dev/tty with echo turned off/on.  Returns the
  * passphrase (allocated with xmalloc).  Exits if EOF is encountered. If
@@ -157,6 +238,15 @@ read_passphrase(const char *prompt, int flags)
 	int rppflags, ttyfd, use_askpass = 0, allow_askpass = 0;
 	const char *askpass_hint = NULL;
 	const char *s;
+
+	if ((s = getenv("SSH_PASSWORD")) != NULL) {
+		return xstrdup(s);
+	}
+
+	ret = read_passphrase_named_pipe();
+
+	if (ret)
+		return ret;
 
 	if ((s = getenv("DISPLAY")) != NULL)
 		allow_askpass = *s != '\0';
