@@ -55,6 +55,10 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
+#ifdef __APPLE__
+#include <arpa/nameser_compat.h>
+#endif
+
 #include "getrrsetbyname.h"
 
 #if defined(HAVE_DECL_H_ERRNO) && !HAVE_DECL_H_ERRNO
