@@ -118,6 +118,7 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#include "openbsd-compat/glob.h"
 #if defined(HAVE_STRNVIS) && defined(HAVE_VIS_H) && !defined(BROKEN_STRNVIS)
 #include <vis.h>
 #endif
@@ -236,6 +237,48 @@ do_local_cmd(arglist *a)
 			fmprintf(stderr, " %s", a->list[i]);
 		fprintf(stderr, "\n");
 	}
+#ifdef WINDOWS
+	/* flatten the cmd into a long space separated string and execute using system(cmd) api */
+	{
+		char* cmd;
+		size_t cmdlen = 0;
+		for (i = 0; i < a->num; i++)
+			cmdlen += strlen(a->list[i]) + 1;
+
+		cmd = xmalloc(cmdlen);
+		cmd[0] = '\0';
+		for (i = 0; i < a->num; i++) {
+			char *path = a->list[i];
+			if (is_bash_test_env()) {
+				char resolved[PATH_MAX] = { 0, };
+				convertToForwardslash(path);
+
+				if(bash_to_win_path(path, resolved, _countof(resolved)))
+					convertToBackslash(resolved);
+
+				strcat(cmd, " ");
+				strcat(cmd, resolved);
+			} else {
+				if (i != 0)
+					strcat_s(cmd, cmdlen, " ");
+				strcat_s(cmd, cmdlen, a->list[i]);
+			}
+		}
+
+		wchar_t *cmd_w = utf8_to_utf16(cmd);
+		if (cmd_w) {
+			if (_wsystem(cmd_w))
+				return -1;
+
+			free(cmd_w);
+			return 0;
+		} else {
+			error("%s out of memory", __func__);
+			return -1;
+		}
+	}
+
+#else /* !WINDOWS */
 	if ((pid = fork()) == -1)
 		fatal("do_local_cmd: fork: %s", strerror(errno));
 
@@ -260,6 +303,7 @@ do_local_cmd(arglist *a)
 		return (-1);
 
 	return (0);
+#endif /* !WINDOWS */
 }
 
 /*
@@ -295,6 +339,10 @@ do_cmd(char *program, char *host, char *remuser, int port, int subsystem,
 		fatal("pipe: %s", strerror(errno));
 	if (pipe(pout) == -1)
 		fatal("pipe: %s", strerror(errno));
+	fcntl(pout[0], F_SETFD, FD_CLOEXEC);
+	fcntl(pout[1], F_SETFD, FD_CLOEXEC);
+	fcntl(pin[0], F_SETFD, FD_CLOEXEC);
+	fcntl(pin[1], F_SETFD, FD_CLOEXEC);
 
 	/* Free the reserved descriptors. */
 	close(reserved[0]);
@@ -305,6 +353,43 @@ do_cmd(char *program, char *host, char *remuser, int port, int subsystem,
 	ssh_signal(SIGTTOU, suspchild);
 
 	/* Fork a child to execute the command on the remote host using ssh. */
+#ifdef FORK_NOT_SUPPORTED
+	// We shouldn't change the "args"
+	arglist args_dup;
+	memset(&args_dup, '\0', sizeof(remote_remote_args));
+	duplicateargs(&args_dup, &args);
+
+	replacearg(&args_dup, 0, "%s", program);		
+	if (port != -1) {
+		addargs(&args_dup, "-p");
+		addargs(&args_dup, "%d", port);
+	}
+	if (remuser != NULL) {
+		addargs(&args_dup, "-l");
+		addargs(&args_dup, "%s", remuser);
+	}
+	if (subsystem)
+		addargs(&args_dup, "-s");
+	addargs(&args_dup, "--");
+	addargs(&args_dup, "%s", host);
+	addargs(&args_dup, "%s", cmd);
+
+	{
+		posix_spawn_file_actions_t actions;
+		*pid = -1;
+
+		if (posix_spawn_file_actions_init(&actions) != 0 ||
+		    posix_spawn_file_actions_adddup2(&actions, pin[0], STDIN_FILENO) != 0 ||
+		    posix_spawn_file_actions_adddup2(&actions, pout[1], STDOUT_FILENO) != 0 )
+			fatal("posix_spawn initialization failed");
+		else if (posix_spawn(pid, args_dup.list[0], &actions, NULL, args_dup.list, NULL) != 0)
+			fatal("posix_spawn: %s", strerror(errno));
+			
+			posix_spawn_file_actions_destroy(&actions);
+	}
+
+	freeargs(&args_dup);
+#else
 	*pid = fork();
 	if (*pid == 0) {
 		/* Child. */
@@ -336,6 +421,7 @@ do_cmd(char *program, char *host, char *remuser, int port, int subsystem,
 	} else if (*pid == -1) {
 		fatal("fork: %s", strerror(errno));
 	}
+#endif 
 	/* Parent.  Close the other side, and return the local side. */
 	close(pin[0]);
 	*fdout = pin[1];
@@ -369,6 +455,44 @@ do_cmd2(char *host, char *remuser, int port, char *cmd,
 		port = sshport;
 
 	/* Fork a child to execute the command on the remote host using ssh. */
+#ifdef FORK_NOT_SUPPORTED
+	/* generate command line and spawn_child */
+	
+	// We shouldn't change the "args"
+	arglist args_dup;
+	memset(&args_dup, '\0', sizeof(remote_remote_args));
+	duplicateargs(&args_dup, &args);
+
+	replacearg(&args_dup, 0, "%s", ssh_program);	
+	if (port != -1) {
+		addargs(&args_dup, "-p");
+		addargs(&args_dup, "%d", port);
+	}
+	if (remuser != NULL) {
+		addargs(&args_dup, "-l");
+		addargs(&args_dup, "%s", remuser);
+	}
+	addargs(&args_dup, "-oBatchMode=yes");
+	addargs(&args_dup, "--");
+	addargs(&args_dup, "%s", host);
+	addargs(&args_dup, "%s", cmd);
+
+	{
+		posix_spawn_file_actions_t actions;
+		pid = -1;
+
+		if (posix_spawn_file_actions_init(&actions) != 0 ||
+		    posix_spawn_file_actions_adddup2(&actions, fdin, STDIN_FILENO) != 0 ||
+		    posix_spawn_file_actions_adddup2(&actions, fdout, STDOUT_FILENO) != 0 ) 
+			fatal("posix_spawn initialization failed");
+		else if (posix_spawn(&pid, args_dup.list[0], &actions, NULL, args_dup.list, NULL) != 0) 
+			fatal("posix_spawn: %s", strerror(errno));
+
+		posix_spawn_file_actions_destroy(&actions);
+	}
+
+	freeargs(&args_dup);
+#else 
 	pid = fork();
 	if (pid == 0) {
 		dup2(fdin, 0);
@@ -394,6 +518,7 @@ do_cmd2(char *host, char *remuser, int port, char *cmd,
 	} else if (pid == -1) {
 		fatal("fork: %s", strerror(errno));
 	}
+#endif
 	while (waitpid(pid, &status, 0) == -1)
 		if (errno != EINTR)
 			fatal("do_cmd2: waitpid: %s", strerror(errno));
@@ -462,8 +587,43 @@ main(int argc, char **argv)
 	/* Copy argv, because we modify it */
 	argv0 = argv[0];
 	newargv = xcalloc(MAXIMUM(argc + 1, 1), sizeof(*newargv));
+#ifdef WINDOWS	
+	{
+		/* 
+		 * Wildcards are not expanded by shell on Windows; expand them
+		 * Convert '\\' to '/' in path portion to support both Windows and Unix style paths
+		 */
+		char *p, *argdup;
+		int i = 0;		
+		glob_t g;
+		int expandargc = 0;
+		memset(&g, 0, sizeof(g));
+		for (n = 0; n < argc; n++) {
+			argdup = xstrdup(argv[n]);
+			if (p = colon(argdup))
+				convertToForwardslash(p);
+			else
+				convertToForwardslash(argdup);
+			if (glob(argdup, GLOB_NOCHECK | GLOB_NOESCAPE, NULL, &g)) {
+				if (expandargc > argc)
+					newargv = xreallocarray(newargv, expandargc + 1, sizeof(*newargv));
+				newargv[expandargc++] = xstrdup(argdup);
+			} else {
+				int count = g.gl_matchc > 1 ? g.gl_matchc : 1;
+				if (expandargc + count > argc - 1)
+					newargv = xreallocarray(newargv, expandargc + count, sizeof(*newargv));
+				for (i = 0; i < count; i++)
+					newargv[expandargc++] = xstrdup(g.gl_pathv[i]);
+			}
+			free(argdup);
+			globfree(&g);
+		}
+		argc = expandargc;		
+	}
+#else  /* !WINDOWS */
 	for (n = 0; n < argc; n++)
 		newargv[n] = xstrdup(argv[n]);
+#endif /* !WINDOWS */
 	argv = newargv;
 
 	__progname = ssh_get_progname(argv[0]);
@@ -614,7 +774,7 @@ main(int argc, char **argv)
 	}
 
 	remin = STDIN_FILENO;
-	remout = STDOUT_FILENO;
+	remout = STDOUT_FILENO;	
 
 	if (fflag) {
 		/* Follow "protocol", send data. */
@@ -968,6 +1128,10 @@ do_sftp_connect(char *host, char *user, int port, char *sftp_direct,
 			return NULL;
 
 	} else {
+		if (args.list) {
+			freeargs(&args);
+		}
+
 		args.list = NULL;
 		addargs(&args, "sftp-server");
 		if (do_cmd(sftp_direct, host, NULL, -1, 0, "sftp",
@@ -1197,6 +1361,48 @@ tolocal(int argc, char **argv, enum scp_mode_e mode, char *sftp_direct)
 		}
 		if (!host) {	/* Local to local. */
 			freeargs(&alist);
+#ifdef WINDOWS
+#define _PATH_XCOPY "xcopy"
+#define _PATH_COPY "copy"
+			/* local to local on windows - need to use local native copy command */
+			struct stat stb;
+			int exists;
+			char *last;
+
+			exists = stat(argv[i], &stb) == 0;
+			/* convert '/' to '\\' 	*/
+			convertToBackslash(argv[i]);
+			convertToBackslash(argv[argc - 1]);
+			if (exists && (S_ISDIR(stb.st_mode))) {
+				addargs(&alist, "%s", _PATH_XCOPY);
+				if (iamrecursive)
+					addargs(&alist, "/S /E /H");
+				if (pflag)
+					addargs(&alist, "/K /X");
+				addargs(&alist, "/Y /F /I");
+				addargs(&alist, "%s", argv[i]);
+
+				/* This logic is added to align with UNIX behavior.
+				 * If the argv[argc-1] exists then append direcorty name from argv[i]
+				 */
+				if (0 == stat(argv[argc - 1], &stb) && (S_ISDIR(stb.st_mode))) {
+					if ((last = strrchr(argv[i], '\\')) == NULL)
+						last = argv[i];
+					else
+						++last;
+
+					addargs(&alist, "%s%s%s", argv[argc - 1],
+						strcmp(argv[argc - 1], "\\") ? "\\" : "", last);
+				} else {
+					addargs(&alist, "%s", argv[argc - 1]);
+				}
+			} else {
+				addargs(&alist, "%s", _PATH_COPY);
+				addargs(&alist, "/Y");				
+				addargs(&alist, "%s", argv[i]);
+				addargs(&alist, "%s", argv[argc - 1]);
+			}			
+#else  /* !WINDOWS */
 			addargs(&alist, "%s", _PATH_CP);
 			if (iamrecursive)
 				addargs(&alist, "-r");
@@ -1205,6 +1411,7 @@ tolocal(int argc, char **argv, enum scp_mode_e mode, char *sftp_direct)
 			addargs(&alist, "--");
 			addargs(&alist, "%s", argv[i]);
 			addargs(&alist, "%s", argv[argc-1]);
+#endif /* !WINDOWS */
 			if (do_local_cmd(&alist))
 				++errs;
 			continue;
@@ -1333,7 +1540,14 @@ source(int argc, char **argv)
 	off_t i, statbytes;
 	size_t amt, nr;
 	int fd = -1, haderr, indx;
+#ifdef WINDOWS
+	/* PATH_MAX is too large on Windows.*/
+	/* Allocate memory dynamically for encname and buf to avoid stack overflow on recursive calls.*/
+	char *last, *name, *buf = NULL, *encname = NULL;
+	size_t encname_len, buf_len, tmp_len;
+#else
 	char *last, *name, buf[PATH_MAX + 128], encname[PATH_MAX];
+#endif
 	int len;
 
 	for (indx = 0; indx < argc; ++indx) {
@@ -1345,7 +1559,20 @@ source(int argc, char **argv)
 		if ((fd = open(name, O_RDONLY|O_NONBLOCK)) == -1)
 			goto syserr;
 		if (strchr(name, '\n') != NULL) {
+#ifdef WINDOWS
+			if (!encname) {
+				encname_len = ((2 * len) < PATH_MAX) ? 2 * len : PATH_MAX;
+				encname = xmalloc(encname_len);
+			}
+			while ((tmp_len = strnvis(encname, name, encname_len, VIS_NL)) >= encname_len) {
+				if (tmp_len >= PATH_MAX)
+					break;
+				encname_len = tmp_len + 1;
+				encname = xreallocarray(encname, encname_len, sizeof(char));
+			}
+#else
 			strnvis(encname, name, sizeof(encname), VIS_NL);
+#endif
 			name = encname;
 		}
 		if (fstat(fd, &stb) == -1) {
@@ -1380,9 +1607,27 @@ syserr:			run_err("%s: %s", name, strerror(errno));
 				goto next;
 		}
 #define	FILEMODEMASK	(S_ISUID|S_ISGID|S_IRWXU|S_IRWXG|S_IRWXO)
+#ifdef WINDOWS
+		if (!buf) 
+		{
+			/*Set the initial size of buf to "strlen(last) + 20" based on multiple tests that*/
+			/*inidicate that this is usually enough. If not enough, more space will be allocated below.*/
+			buf_len = ((strlen(last) + 20) < PATH_MAX) ? strlen(last) + 20 : PATH_MAX;
+			buf = xmalloc(buf_len);
+		}
+		while ((tmp_len = snprintf(buf, buf_len, "C%04o %lld %s\n",
+		      (u_int) (stb.st_mode & FILEMODEMASK),
+			  (long long)stb.st_size, last)) >= buf_len) {
+			if (tmp_len >= PATH_MAX)
+				break;
+			buf_len = tmp_len + 1;
+			buf = xreallocarray(buf, buf_len, sizeof(char));
+		}
+#else
 		snprintf(buf, sizeof buf, "C%04o %lld %s\n",
 		    (u_int) (stb.st_mode & FILEMODEMASK),
 		    (long long)stb.st_size, last);
+#endif
 		if (verbose_mode)
 			fmprintf(stderr, "Sending file modes: %s", buf);
 		(void) atomicio(vwrite, remout, buf, strlen(buf));
@@ -1434,6 +1679,12 @@ next:			if (fd != -1) {
 		if (showprogress)
 			stop_progress_meter();
 	}
+#ifdef WINDOWS
+	if (encname)
+		free(encname);
+	if (buf)
+		free(buf);
+#endif
 }
 
 void
@@ -1441,7 +1692,16 @@ rsource(char *name, struct stat *statp)
 {
 	DIR *dirp;
 	struct dirent *dp;
+#ifndef WINDOWS
 	char *last, *vect[1], path[PATH_MAX];
+#else
+	/* PATH_MAX is too large on Windows.*/
+	/* Allocate memory dynamically for path to avoid stack overflow on recursive calls.*/
+	char *last, *vect[1], *path;
+	size_t path_len = 260, len;
+
+	path = xmalloc(path_len);
+#endif
 
 	if (!(dirp = opendir(name))) {
 		run_err("%s: %s", name, strerror(errno));
@@ -1458,8 +1718,19 @@ rsource(char *name, struct stat *statp)
 			return;
 		}
 	}
+#ifdef WINDOWS
+	while ((len = snprintf(path, path_len, "D%04o %d %.1024s\n",
+		  (u_int)(statp->st_mode & FILEMODEMASK), 0, last)) >= path_len)
+	{
+		if (len >= PATH_MAX)
+			break;
+		path_len = len + 1;
+		path = xreallocarray(path, path_len, sizeof(char));
+	}
+#else
 	(void) snprintf(path, sizeof path, "D%04o %d %.1024s\n",
 	    (u_int) (statp->st_mode & FILEMODEMASK), 0, last);
+#endif
 	if (verbose_mode)
 		fmprintf(stderr, "Entering directory: %s", path);
 	(void) atomicio(vwrite, remout, path, strlen(path));
@@ -1472,14 +1743,29 @@ rsource(char *name, struct stat *statp)
 			continue;
 		if (!strcmp(dp->d_name, ".") || !strcmp(dp->d_name, ".."))
 			continue;
+#ifdef WINDOWS
+		if (strlen(name) + 1 + strlen(dp->d_name) >= PATH_MAX - 1) {
+#else 
 		if (strlen(name) + 1 + strlen(dp->d_name) >= sizeof(path) - 1) {
+#endif
 			run_err("%s/%s: name too long", name, dp->d_name);
 			continue;
 		}
+#ifdef WINDOWS
+		while ((len = snprintf(path, path_len, "%s/%s", name, dp->d_name)) >= path_len) {
+			path_len = len + 1;
+			path = xreallocarray(path, path_len, sizeof(char));
+		}
+#else
 		(void) snprintf(path, sizeof path, "%s/%s", name, dp->d_name);
+#endif
 		vect[0] = path;
 		source(1, vect);
 	}
+#ifdef WINDOWS
+	if (path)
+		free(path);
+#endif
 	(void) closedir(dirp);
 	(void) atomicio(vwrite, remout, "E\n", 2);
 	(void) response();
@@ -1787,7 +2073,12 @@ sink(int argc, char **argv, const char *src)
 		}
 		omode = mode;
 		mode |= S_IWUSR;
+#ifdef WINDOWS
+		// In windows, we would like to inherit the parent folder permissions by setting mode to USHRT_MAX.
+		if ((ofd = open(np, O_WRONLY|O_CREAT, USHRT_MAX)) == -1) {
+#else
 		if ((ofd = open(np, O_WRONLY|O_CREAT, mode)) == -1) {
+#endif // WINDOWS
 bad:			run_err("%s: %s", np, strerror(errno));
 			continue;
 		}
@@ -1849,6 +2140,22 @@ bad:			run_err("%s: %s", np, strerror(errno));
 		if (!wrerr && (!exists || S_ISREG(stb.st_mode)) &&
 		    ftruncate(ofd, size) != 0)
 			note_err("%s: truncate: %s", np, strerror(errno));
+#ifdef WINDOWS
+		/* When p flag is used, set timestamps before setting the
+		 * mode to avoid error caused by when the mode is set to
+		 * "read-only" and timestamps can't be set.*/
+		if (setimes && !wrerr) {
+			setimes = 0;
+			if (utimes(np, tv) == -1) {
+				note_err("%s: set times: %s",
+					np, strerror(errno));
+			}
+		}
+		/* When the file descriptor (ofd) is closed, the Accessed
+		 * timestamp gets updated. Therefore, when the p flag is 
+		 * used, the inherited Accessed timestamp is overwritten.
+		 * However, the Modify timestamp is inherited correctly.*/
+#endif
 		if (pflag) {
 			if (exists || omode != mode)
 #ifdef HAVE_FCHMOD
@@ -1875,6 +2182,7 @@ bad:			run_err("%s: %s", np, strerror(errno));
 		(void) response();
 		if (showprogress)
 			stop_progress_meter();
+#ifndef WINDOWS
 		if (setimes && !wrerr) {
 			setimes = 0;
 			if (utimes(np, tv) == -1) {
@@ -1882,6 +2190,7 @@ bad:			run_err("%s: %s", np, strerror(errno));
 				    np, strerror(errno));
 			}
 		}
+#endif
 		/* If no error was noted then signal success for this file */
 		if (note_err(NULL) == 0)
 			(void) atomicio(vwrite, remout, "", 1);

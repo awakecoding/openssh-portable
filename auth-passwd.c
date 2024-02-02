@@ -56,6 +56,7 @@
 #include "auth.h"
 #include "auth-options.h"
 
+
 extern struct sshbuf *loginmsg;
 extern ServerOptions options;
 
@@ -108,6 +109,14 @@ auth_password(struct ssh *ssh, const char *password)
 		if (hToken == INVALID_HANDLE_VALUE)
 			return 0;
 		cygwin_set_impersonation_token(hToken);
+		return ok;
+	}
+#endif
+#ifdef WINDOWS
+	{
+		int windows_password_auth(const char *, const char *);
+		if (windows_password_auth(pw->pw_name, password) == 0)
+			return 0;
 		return ok;
 	}
 #endif
@@ -220,4 +229,5 @@ sys_auth_passwd(struct ssh *ssh, const char *password)
 	return encrypted_password != NULL &&
 	    strcmp(encrypted_password, pw_password) == 0;
 }
+
 #endif

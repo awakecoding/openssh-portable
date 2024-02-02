@@ -789,7 +789,12 @@ sk_enroll(uint32_t alg, const uint8_t *challenge, size_t challenge_len,
 		goto out;
 	}
 	*enroll_response = NULL;
+#ifdef WINDOWS
+	/* Don't overwrite existing credentials on FIDO authenticators. */
+	arc4random_buf(user_id, sizeof(user_id));
+#else
 	memset(user_id, 0, sizeof(user_id));
+#endif
 	if (check_enroll_options(options, &device, user_id,
 	    sizeof(user_id)) != 0)
 		goto out; /* error already logged */
@@ -809,8 +814,15 @@ sk_enroll(uint32_t alg, const uint8_t *challenge, size_t challenge_len,
 	}
 	if (device != NULL)
 		sk = sk_open(device);
-	else
+	else {
+#ifdef WINDOWS
+		if ((sk = sk_open("windows://hello")) == NULL)
+			sk = sk_probe(NULL, NULL, 0);
+#else
 		sk = sk_probe(NULL, NULL, 0);
+#endif
+	}
+	
 	if (sk == NULL) {
 		ret = SSH_SK_ERR_DEVICE_NOT_FOUND;
 		skdebug(__func__, "failed to find sk");
@@ -825,12 +837,26 @@ sk_enroll(uint32_t alg, const uint8_t *challenge, size_t challenge_len,
 		skdebug(__func__, "fido_cred_set_type: %s", fido_strerr(r));
 		goto out;
 	}
+#ifndef WINDOWS
 	if ((r = fido_cred_set_clientdata(cred,
 	    challenge, challenge_len)) != FIDO_OK) {
 		skdebug(__func__, "fido_cred_set_clientdata: %s",
 		    fido_strerr(r));
 		goto out;
 	}
+#else
+	/*
+	 * webauthn.dll (windows://hello in libfido2) requires the unhashed
+	 * clientdata body, so we use fido_cred_set_clientdata() instead of
+	 * fido_cred_set_clientdata_hash().
+	 */
+	if ((r = fido_cred_set_clientdata(cred, challenge,
+	    challenge_len)) != FIDO_OK) {
+		skdebug(__func__, "fido_cred_set_clientdata: %s",
+		    fido_strerr(r));
+		goto out;
+	}
+#endif
 	if ((r = fido_cred_set_rk(cred, (flags & SSH_SK_RESIDENT_KEY) != 0 ?
 	    FIDO_OPT_TRUE : FIDO_OPT_OMIT)) != FIDO_OK) {
 		skdebug(__func__, "fido_cred_set_rk: %s", fido_strerr(r));
@@ -1084,6 +1110,9 @@ sk_sign(uint32_t alg, const uint8_t *data, size_t datalen,
 	char *device = NULL;
 	struct sk_usbhid *sk = NULL;
 	struct sk_sign_response *response = NULL;
+#ifndef WINDOWS
+	uint8_t message[32];
+#endif
 	int ret = SSH_SK_ERR_GENERAL, internal_uv;
 	int r;
 
@@ -1098,10 +1127,23 @@ sk_sign(uint32_t alg, const uint8_t *data, size_t datalen,
 		goto out; /* error already logged */
 	if (device != NULL)
 		sk = sk_open(device);
+#ifdef WINDOWS
+	else {
+		if ((sk = sk_open("windows://hello")) == NULL) {
+			if (pin != NULL ||
+			    (flags & SSH_SK_USER_VERIFICATION_REQD))
+				sk = sk_probe(NULL, NULL, 0);
+			else
+				sk = sk_probe(application, key_handle,
+				    key_handle_len);
+		}
+	}
+#else
 	else if (pin != NULL || (flags & SSH_SK_USER_VERIFICATION_REQD))
 		sk = sk_probe(NULL, NULL, 0);
 	else
 		sk = sk_probe(application, key_handle, key_handle_len);
+#endif
 	if (sk == NULL) {
 		ret = SSH_SK_ERR_DEVICE_NOT_FOUND;
 		skdebug(__func__, "failed to find sk");
@@ -1111,12 +1153,26 @@ sk_sign(uint32_t alg, const uint8_t *data, size_t datalen,
 		skdebug(__func__, "fido_assert_new failed");
 		goto out;
 	}
+#ifndef WINDOWS
 	if ((r = fido_assert_set_clientdata(assert,
 	    data, datalen)) != FIDO_OK)  {
 		skdebug(__func__, "fido_assert_set_clientdata: %s",
 		    fido_strerr(r));
 		goto out;
 	}
+#else
+	/*
+	 * webauthn.dll (windows://hello in libfido2) requires the unhashed
+	 * clientdata body, so we use fido_assert_set_clientdata() instead of
+	 * fido_assert_set_clientdata_hash().
+	 */
+	if ((r = fido_assert_set_clientdata(assert, data,
+	    datalen)) != FIDO_OK) {
+		skdebug(__func__, "fido_assert_set_clientdata: %s",
+		    fido_strerr(r));
+		goto out;
+	}
+#endif
 	if ((r = fido_assert_set_rp(assert, application)) != FIDO_OK) {
 		skdebug(__func__, "fido_assert_set_rp: %s", fido_strerr(r));
 		goto out;

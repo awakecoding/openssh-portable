@@ -125,8 +125,14 @@ ${SSH} $opts -i $OBJ/user_key2 proxy true || fatal "key2 failed"
 
 # Allow only DSA in main config, Ed25519 for user.
 verbose "match w/ matching"
-prepare_config "PubkeyAcceptedAlgorithms `keytype $ktype4`" \
-	"Match user $USER" "PubkeyAcceptedAlgorithms +`keytype $ktype1`"
+if [ "$os" == "windows" ]; then
+	# If User is domainuser then it will be in "domain/user" so convert it to "domain\user"
+	prepare_config "PubkeyAcceptedAlgorithms `keytype $ktype4`" \
+		"Match user ${USER//\//\\}" "PubkeyAcceptedAlgorithms +`keytype $ktype1`"
+else
+	prepare_config "PubkeyAcceptedAlgorithms `keytype $ktype4`" \
+		"Match user $USER" "PubkeyAcceptedAlgorithms +`keytype $ktype1`"
+fi
 ${SSH} $certopts proxy true || fatal "cert failed"
 ${SSH} $opts -i $OBJ/user_key1 proxy true || fatal "key1 failed"
 ${SSH} $opts -i $OBJ/user_key4 proxy true && fatal "key4 succeeded"

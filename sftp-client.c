@@ -1507,8 +1507,13 @@ do_download(struct sftp_conn *conn, const char *remote_path,
 	    &handle, &handle_len) != 0)
 		return -1;
 
+#ifdef WINDOWS
+	// In windows, we would like to inherit the parent folder permissions by setting mode to USHRT_MAX.
+	local_fd = open(local_path, O_WRONLY | O_CREAT | (resume_flag ? 0 : O_TRUNC), USHRT_MAX);
+#else
 	local_fd = open(local_path,
-	    O_WRONLY | O_CREAT | (resume_flag ? 0 : O_TRUNC), mode | S_IWUSR);
+		O_WRONLY | O_CREAT | (resume_flag ? 0 : O_TRUNC), mode | S_IWUSR);
+#endif // WINDOWS
 	if (local_fd == -1) {
 		error("open local \"%s\": %s", local_path, strerror(errno));
 		goto fail;
@@ -2630,12 +2635,37 @@ make_absolute(char *p, const char *pwd)
 	char *abs_str;
 
 	/* Derelativise */
+#ifdef WINDOWS
+	/*
+	* For Windows - given path is absolute when
+	*   - first character is "/"
+	*   - or second character is ":"
+	* This code is also applicable from a Linux client to Windows target
+	* Need to follow up with community if this makes sense in common code
+	*/
+	char *s1, *s2;
+	if (!is_absolute_path(p)) {
+		abs_str = path_append(pwd, p);
+		free(p);
+		p = abs_str;
+	}
+
+	/* Append "/" if needed to the absolute windows path */	
+	if (p && p[0] != '\0' && p[1] == ':') {
+		s1 = path_append("/", p);
+		free(p);
+		p = s1;
+	}
+	
+	return(p);
+#else /* !WINDOWS */
 	if (p && !path_absolute(p)) {
 		abs_str = path_append(pwd, p);
 		free(p);
 		return(abs_str);
 	} else
 		return(p);
+#endif /* !WINDOWS */
 }
 
 int

@@ -77,6 +77,12 @@
 #include "compat.h"
 #include "channels.h"
 
+#ifdef WINDOWS
+#include <Windows.h>
+#include "misc_internal.h"
+#include "sshfileperm.h"
+#endif // WINDOWS
+
 /* import */
 extern ServerOptions options;
 extern struct include_list includes;
@@ -436,6 +442,13 @@ expand_authorized_keys(const char *filename, struct passwd *pw)
 	file = percent_expand(filename, "h", pw->pw_dir,
 	    "u", pw->pw_name, "U", uidstr, (char *)NULL);
 
+#ifdef WINDOWS
+	/* Return if the path is absolute. If not, prepend the '%h\\' */
+	if(is_absolute_path(file))
+		return (file);
+
+	i = snprintf(ret, sizeof(ret), "%s\\%s", pw->pw_dir, file);
+#else
 	/*
 	 * Ensure that filename starts anchored. If not, be backward
 	 * compatible and prepend the '%h/'
@@ -444,6 +457,8 @@ expand_authorized_keys(const char *filename, struct passwd *pw)
 		return (file);
 
 	i = snprintf(ret, sizeof(ret), "%s/%s", pw->pw_dir, file);
+#endif // WINDOWS
+
 	if (i < 0 || (size_t)i >= sizeof(ret))
 		fatal("expand_authorized_keys: path too long");
 	free(file);
@@ -513,6 +528,23 @@ auth_openfile(const char *file, struct passwd *pw, int strict_modes,
 	int fd;
 	FILE *f;
 
+#ifdef WINDOWS
+	/* Windows POSIX adapter does not support fdopen() on open(file)*/
+	if ((f = fopen(file, "r")) == NULL) {
+		debug("Could not open %s '%s': %s", file_type, file,
+			strerror(errno));
+		return NULL;
+	}
+
+	// read permissions for non-admin/non-system accounts are allowed.
+	// Unix does safe_path_fd() which allows 022 file permissions i.e., allowing read for other users.
+	if (strict_modes && check_secure_file_permission(file, pw, 1) != 0) {
+		fclose(f);
+		logit("Authentication refused.");
+		auth_debug_add("Ignored %s", file_type);
+		return NULL;
+	}
+#else  /* !WINDOWS */
 	if ((fd = open(file, O_RDONLY|O_NONBLOCK)) == -1) {
 		if (log_missing || errno != ENOENT)
 			debug("Could not open %s '%s': %s", file_type, file,
@@ -542,6 +574,7 @@ auth_openfile(const char *file, struct passwd *pw, int strict_modes,
 		auth_debug_add("Ignored %s: %s", file_type, line);
 		return NULL;
 	}
+#endif  /* !WINDOWS */
 
 	return f;
 }
@@ -574,7 +607,16 @@ getpwnamallow(struct ssh *ssh, const char *user)
 	u_int i;
 
 	ci = get_connection_info(ssh, 1, options.use_dns);
+#ifdef WINDOWS
+	/* getpwname - normalizes the incoming user and makes it lowercase
+	/* it must be duped as the server matching routines may use getpwnam() and
+	 * and free the name being assigned to the connection info structure 
+	 */
+	pw = getpwnam(user);
+	ci->user = pw? xstrdup(pw->pw_name): user;
+#else
 	ci->user = user;
+#endif // WINDOWS
 	parse_server_match_config(&options, &includes, ci);
 	log_change_level(options.log_level);
 	log_verbose_reset();
@@ -585,8 +627,9 @@ getpwnamallow(struct ssh *ssh, const char *user)
 #if defined(_AIX) && defined(HAVE_SETAUTHDB)
 	aix_setauthdb(user);
 #endif
-
+#ifndef WINDOWS
 	pw = getpwnam(user);
+#endif
 
 #if defined(_AIX) && defined(HAVE_SETAUTHDB)
 	aix_restoreauthdb();
