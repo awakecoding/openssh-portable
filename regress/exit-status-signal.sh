@@ -11,6 +11,7 @@ ssh_pid=$!
 n=20
 while [ ! -f $OBJ/remote_pid ] && [ $n -gt 0 ]; do
 	n=$(($n - 1))
+	echo "sleep for 1 sec"
 	sleep 1
 done
 
@@ -22,3 +23,6 @@ if [ $exit_code -eq 0 ]; then
 	fail "ssh client should fail on signal"
 fi
 
+if [ "$os" == "windows" ]; then
+	powershell.exe /c "stop-process -name sleep" >/dev/null 2>&1
+fi

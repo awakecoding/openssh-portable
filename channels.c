@@ -1269,8 +1269,9 @@ x11_open_helper(struct ssh *ssh, struct sshbuf *b)
 		return 0;
 
 	/* Parse the lengths of variable-length fields. */
-	ucp = sshbuf_mutable_ptr(b);
-	if (ucp[0] == 0x42) {	/* Byte order MSB first. */
+	if ((ucp = sshbuf_mutable_ptr(b)) == NULL) // fix CodeQL SM02311
+		return 0;
+	if (ucp[0] == 0x42) { /* Byte order MSB first. */
 		proto_len = 256 * ucp[6] + ucp[7];
 		data_len = 256 * ucp[8] + ucp[9];
 	} else if (ucp[0] == 0x6c) {	/* Byte order LSB first. */
@@ -1408,6 +1409,10 @@ channel_decode_socks4(Channel *c, struct sshbuf *input, struct sshbuf *output)
 	if (have < len)
 		return 0;
 	p = sshbuf_ptr(input);
+	if (p == NULL) { // fix CodeQL SM02311 
+		error("channel %d: invalid input", c->self);
+		return -1;
+	}
 
 	need = 1;
 	/* SOCKS4A uses an invalid IP address 0.0.0.x */
@@ -1441,7 +1446,7 @@ channel_decode_socks4(Channel *c, struct sshbuf *input, struct sshbuf *output)
 	}
 	have = sshbuf_len(input);
 	p = sshbuf_ptr(input);
-	if (memchr(p, '\0', have) == NULL) {
+	if (p == NULL || memchr(p, '\0', have) == NULL) { // fix CodeQL SM02311 
 		error("channel %d: decode socks4: unterminated user", c->self);
 		return -1;
 	}
@@ -1459,7 +1464,7 @@ channel_decode_socks4(Channel *c, struct sshbuf *input, struct sshbuf *output)
 	} else {				/* SOCKS4A: two strings */
 		have = sshbuf_len(input);
 		p = sshbuf_ptr(input);
-		if (memchr(p, '\0', have) == NULL) {
+		if (p == NULL || memchr(p, '\0', have) == NULL) { // fix CodeQL SM02311 
 			error("channel %d: decode socks4a: host not nul "
 			    "terminated", c->self);
 			return -1;
@@ -1523,7 +1528,7 @@ channel_decode_socks5(Channel *c, struct sshbuf *input, struct sshbuf *output)
 
 	debug2("channel %d: decode socks5", c->self);
 	p = sshbuf_ptr(input);
-	if (p[0] != 0x05)
+	if (p == NULL || p[0] != 0x05) // fix CodeQL SM02311 
 		return -1;
 	have = sshbuf_len(input);
 	if (!(c->flags & SSH_SOCKS5_AUTHDONE)) {
@@ -1677,6 +1682,8 @@ channel_pre_dynamic(struct ssh *ssh, Channel *c)
 	}
 	/* try to guess the protocol */
 	p = sshbuf_ptr(c->input);
+	if (p == NULL) // fix CodeQL SM02311 
+		return;
 	/* XXX sshbuf_peek_u8? */
 	switch (p[0]) {
 	case 0x04:
@@ -1735,6 +1742,8 @@ channel_before_prepare_io_rdynamic(struct ssh *ssh, Channel *c)
 		return;
 	/* try to guess the protocol */
 	p = sshbuf_ptr(c->output);
+	if (p == NULL) // fix CodeQL SM02311 
+		return;
 	switch (p[0]) {
 	case 0x04:
 		/* switch input/output for reverse forwarding */

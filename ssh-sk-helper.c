@@ -111,10 +111,20 @@ process_sign(struct sshbuf *req)
 
 	if ((r = sshkey_private_deserialize(kbuf, &key)) != 0)
 		fatal_r(r, "%s: Unable to parse private key", __progname);
+#ifndef WINDOWS
 	if (!sshkey_is_sk(key)) {
 		fatal("%s: Unsupported key type %s",
 		    __progname, sshkey_ssh_name(key));
 	}
+#else
+	if (!sshkey_is_sk(key) || key->sk_application == NULL) {
+		fatal("%s: Unsupported key type %s",
+		    __progname, sshkey_ssh_name(key));
+	}
+	if (strncmp(key->sk_application, "ssh:", 4) != 0) {
+		fatal("%s: web-origin key", __progname);
+	}
+#endif
 
 	debug_f("ready to sign with key %s, provider %s: "
 	    "msg len %zu, compat 0x%lx", sshkey_type(key),
@@ -173,6 +183,10 @@ process_enroll(struct sshbuf *req)
 
 	if (type > INT_MAX)
 		fatal("%s: bad type %u", __progname, type);
+#ifdef WINDOWS
+	if (application == NULL || strncmp(application, "ssh:", 4) != 0)
+		fatal("%s: bogus application", __progname);
+#endif
 	if (sshbuf_len(challenge) == 0) {
 		sshbuf_free(challenge);
 		challenge = NULL;
@@ -247,6 +261,11 @@ process_load_resident(struct sshbuf *req)
 		fatal_r(r, "%s: compose", __progname);
 
 	for (i = 0; i < nsrks; i++) {
+#ifdef WINDOWS
+		if (srks[i]->key->sk_application == NULL ||
+		    strncmp(srks[i]->key->sk_application, "ssh:", 4) != 0)
+			fatal("%s: non-ssh application", __progname);
+#endif
 		debug_f("key %zu %s %s uidlen %zu", i,
 		    sshkey_type(srks[i]->key), srks[i]->key->sk_application,
 		    srks[i]->user_id_len);

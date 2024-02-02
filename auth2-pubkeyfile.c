@@ -185,6 +185,12 @@ auth_check_principals_line(char *cp, const struct sshkey_cert *cert,
 	while (ep > cp && (*ep == '\n' || *ep == ' ' || *ep == '\t'))
 		*ep-- = '\0';
 
+#ifdef SUPPORT_CRLF
+	/* account for \r at line end */
+	if (*ep == '\r')
+		*ep-- = '\0';
+#endif
+
 	/*
 	 * If the line has internal whitespace then assume it has
 	 * key options.
@@ -447,6 +453,23 @@ auth_openfile(const char *file, struct passwd *pw, int strict_modes,
 	int fd;
 	FILE *f;
 
+#ifdef WINDOWS
+	/* Windows POSIX adapter does not support fdopen() on open(file)*/
+	if ((f = fopen(file, "r")) == NULL) {
+		debug("Could not open %s '%s': %s", file_type, file,
+			strerror(errno));
+		return NULL;
+	}
+
+	// read permissions for non-admin/non-system accounts are allowed.
+	// Unix does safe_path_fd() which allows 022 file permissions i.e., allowing read for other users.
+	if (strict_modes && check_secure_file_permission(file, pw, 1) != 0) {
+		fclose(f);
+		logit("Authentication refused.");
+		auth_debug_add("Ignored %s", file_type);
+		return NULL;
+	}
+#else  /* !WINDOWS */
 	if ((fd = open(file, O_RDONLY|O_NONBLOCK)) == -1) {
 		if (errno != ENOENT) {
 			logit("Could not open user '%s' %s '%s': %s",
@@ -480,6 +503,7 @@ auth_openfile(const char *file, struct passwd *pw, int strict_modes,
 		auth_debug_add("Ignored %s: %s", file_type, line);
 		return NULL;
 	}
+#endif /* !WINDOWS */
 
 	return f;
 }

@@ -76,6 +76,12 @@
 #include "ssherr.h"
 #include "channels.h"
 
+#ifdef WINDOWS
+#include <Windows.h>
+#include "misc_internal.h"
+#include "sshfileperm.h"
+#endif // WINDOWS
+
 /* import */
 extern ServerOptions options;
 extern struct include_list includes;
@@ -85,7 +91,14 @@ extern struct passwd *privsep_pw;
 extern struct sshauthopt *auth_opts;
 
 /* Debugging messages */
-static struct sshbuf *auth_debug;
+#ifndef WINDOWS
+	static struct sshbuf *auth_debug;
+#else
+	/* removing static declaration due to access
+	violation thrown when compiling with platform
+	toolsets newer than v140 (VS2017 or above) */
+	struct sshbuf *auth_debug;
+#endif
 
 /*
  * Check if the user is allowed to log in via ssh. If user is listed
@@ -391,6 +404,13 @@ expand_authorized_keys(const char *filename, struct passwd *pw)
 	file = percent_expand(filename, "h", pw->pw_dir,
 	    "u", pw->pw_name, "U", uidstr, (char *)NULL);
 
+#ifdef WINDOWS
+	/* Return if the path is absolute. If not, prepend the '%h\\' */
+	if(is_absolute_path(file))
+		return (file);
+
+	i = snprintf(ret, sizeof(ret), "%s\\%s", pw->pw_dir, file);
+#else
 	/*
 	 * Ensure that filename starts anchored. If not, be backward
 	 * compatible and prepend the '%h/'
@@ -399,6 +419,8 @@ expand_authorized_keys(const char *filename, struct passwd *pw)
 		return (file);
 
 	i = snprintf(ret, sizeof(ret), "%s/%s", pw->pw_dir, file);
+#endif // WINDOWS
+
 	if (i < 0 || (size_t)i >= sizeof(ret))
 		fatal("expand_authorized_keys: path too long");
 	free(file);
@@ -473,7 +495,16 @@ getpwnamallow(struct ssh *ssh, const char *user)
 	u_int i;
 
 	ci = get_connection_info(ssh, 1, options.use_dns);
+#ifdef WINDOWS
+	/* getpwname - normalizes the incoming user and makes it lowercase
+	/* it must be duped as the server matching routines may use getpwnam() and
+	 * and free the name being assigned to the connection info structure 
+	 */
+	pw = getpwnam(user);
+	ci->user = pw? xstrdup(pw->pw_name): user;
+#else
 	ci->user = user;
+#endif // WINDOWS
 	parse_server_match_config(&options, &includes, ci);
 	log_change_level(options.log_level);
 	log_verbose_reset();
@@ -484,8 +515,9 @@ getpwnamallow(struct ssh *ssh, const char *user)
 #if defined(_AIX) && defined(HAVE_SETAUTHDB)
 	aix_setauthdb(user);
 #endif
-
+#ifndef WINDOWS
 	pw = getpwnam(user);
+#endif
 
 #if defined(_AIX) && defined(HAVE_SETAUTHDB)
 	aix_restoreauthdb();

@@ -349,7 +349,7 @@ add_file(int agent_fd, const char *filename, int key_only, int qflag,
 		}
 		ssh_free_identitylist(idlist);
 	}
-
+#ifndef WINDOWS
 	if (sshkey_is_sk(private)) {
 		if (skprovider == NULL) {
 			fprintf(stderr, "Cannot load FIDO key %s "
@@ -360,7 +360,10 @@ add_file(int agent_fd, const char *filename, int key_only, int qflag,
 		/* Don't send provider constraint for other keys */
 		skprovider = NULL;
 	}
-
+#else
+	if (!sshkey_is_sk(private))
+		skprovider = NULL;
+#endif
 	if ((r = ssh_add_identity_constrained(agent_fd, private, comment,
 	    lifetime, confirm, maxsign, skprovider,
 	    dest_constraints, ndest_constraints)) == 0) {
@@ -769,9 +772,14 @@ parse_dest_constraint(const char *s, struct dest_constraint ***dcp,
 static void
 usage(void)
 {
+#ifdef WINDOWS
+	fprintf(stderr,
+"usage: ssh-add [-cDdKkLlqvXx] [-E fingerprint_hash] [-S provider] [-t life]\n"
+#else
 	fprintf(stderr,
 "usage: ssh-add [-cDdKkLlqvXx] [-E fingerprint_hash] [-H hostkey_file]\n"
 "               [-h destination_constraint] [-S provider] [-t life]\n"
+#endif
 #ifdef WITH_XMSS
 "               [-M maxsign] [-m minleft]\n"
 #endif
@@ -822,7 +830,11 @@ main(int argc, char **argv)
 
 	skprovider = getenv("SSH_SK_PROVIDER");
 
+#ifdef WINDOWS
+	while ((ch = getopt(argc, argv, "vkKlLcdDTxXE:e:M:m:qs:S:t:")) != -1) {
+#else
 	while ((ch = getopt(argc, argv, "vkKlLcdDTxXE:e:h:H:M:m:qs:S:t:")) != -1) {
+#endif
 		switch (ch) {
 		case 'v':
 			if (log_level == SYSLOG_LEVEL_INFO)
@@ -835,12 +847,14 @@ main(int argc, char **argv)
 			if (fingerprint_hash == -1)
 				fatal("Invalid hash algorithm \"%s\"", optarg);
 			break;
+#ifndef WINDOWS
 		case 'H':
 			stringlist_append(&hostkey_files, optarg);
 			break;
 		case 'h':
 			stringlist_append(&dest_constraint_strings, optarg);
 			break;
+#endif
 		case 'k':
 			key_only = 1;
 			break;
@@ -932,7 +946,7 @@ main(int argc, char **argv)
 		goto done;
 	}
 
-#ifdef ENABLE_SK_INTERNAL
+#if !defined(WINDOWS) && defined(ENABLE_SK_INTERNAL)
 	if (skprovider == NULL)
 		skprovider = "internal";
 #endif

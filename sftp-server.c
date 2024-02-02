@@ -64,6 +64,10 @@ char *sftp_realpath(const char *, char *); /* sftp-realpath.c */
 
 /* Our verbosity */
 static LogLevel log_level = SYSLOG_LEVEL_ERROR;
+#ifdef WINDOWS
+static SyslogFacility log_facility_g = SYSLOG_FACILITY_AUTH;
+int log_stderr_g = 0;
+#endif
 
 /* Our client */
 static struct passwd *pw = NULL;
@@ -162,7 +166,9 @@ static const struct sftp_handler extended_handlers[] = {
 	{ "posix-rename", "posix-rename@openssh.com", 0,
 	    process_extended_posix_rename, 1 },
 	{ "statvfs", "statvfs@openssh.com", 0, process_extended_statvfs, 0 },
+#ifndef WINDOWS
 	{ "fstatvfs", "fstatvfs@openssh.com", 0, process_extended_fstatvfs, 0 },
+#endif
 	{ "hardlink", "hardlink@openssh.com", 0, process_extended_hardlink, 1 },
 	{ "fsync", "fsync@openssh.com", 0, process_extended_fsync, 1 },
 	{ "lsetstat", "lsetstat@openssh.com", 0, process_extended_lsetstat, 1 },
@@ -172,8 +178,10 @@ static const struct sftp_handler extended_handlers[] = {
 	{ "copy-data", "copy-data", 0, process_extended_copy_data, 1 },
 	{ "home-directory", "home-directory", 0,
 	    process_extended_home_directory, 0 },
+#ifndef WINDOWS
 	{ "users-groups-by-id", "users-groups-by-id@openssh.com", 0,
 	    process_extended_get_users_groups_by_id, 0 },
+#endif
 	{ NULL, NULL, 0, NULL, 0 }
 };
 
@@ -603,7 +611,7 @@ send_data(u_int32_t id, const u_char *data, int dlen)
 static void
 send_handle(u_int32_t id, int handle)
 {
-	u_char *string;
+	u_char *string = NULL;
 	int hlen;
 
 	handle_to_string(handle, &string, &hlen);
@@ -724,7 +732,9 @@ process_init(void)
 	 /* extension advertisements */
 	compose_extension(msg, "posix-rename@openssh.com", "1");
 	compose_extension(msg, "statvfs@openssh.com", "2");
+#ifndef WINDOWS
 	compose_extension(msg, "fstatvfs@openssh.com", "2");
+#endif
 	compose_extension(msg, "hardlink@openssh.com", "1");
 	compose_extension(msg, "fsync@openssh.com", "1");
 	compose_extension(msg, "lsetstat@openssh.com", "1");
@@ -732,8 +742,9 @@ process_init(void)
 	compose_extension(msg, "expand-path@openssh.com", "1");
 	compose_extension(msg, "copy-data", "1");
 	compose_extension(msg, "home-directory", "1");
+#ifndef WINDOWS
 	compose_extension(msg, "users-groups-by-id@openssh.com", "1");
-
+#endif
 	send_msg(msg);
 	sshbuf_free(msg);
 }
@@ -762,7 +773,12 @@ process_open(u_int32_t id)
 		verbose("Refusing open request in read-only mode");
 		status = SSH2_FX_PERMISSION_DENIED;
 	} else {
+#ifdef WINDOWS
+		// In windows, we would like to inherit the parent folder permissions by setting mode to USHRT_MAX.
+		fd = open(name, flags, USHRT_MAX);
+#else
 		fd = open(name, flags, mode);
+#endif // WINDOWS
 		if (fd == -1) {
 			status = errno_to_portable(errno);
 		} else {
@@ -1050,13 +1066,13 @@ process_fsetstat(u_int32_t id)
 
 		if (a.flags & SSH2_FILEXFER_ATTR_SIZE) {
 			logit("set \"%s\" size %llu",
-			    name, (unsigned long long)a.size);
+			    name, (unsigned long long)a.size); // CodeQL [SM02311]: false positive name will not be null because of handle_to_fd check
 			r = ftruncate(fd, a.size);
 			if (r == -1)
 				status = errno_to_portable(errno);
 		}
 		if (a.flags & SSH2_FILEXFER_ATTR_PERMISSIONS) {
-			logit("set \"%s\" mode %04o", name, a.perm);
+			logit("set \"%s\" mode %04o", name, a.perm); // CodeQL [SM02311]: false positive name will not be null because of handle_to_fd check
 #ifdef HAVE_FCHMOD
 			r = fchmod(fd, a.perm & 07777);
 #else
@@ -1071,7 +1087,7 @@ process_fsetstat(u_int32_t id)
 
 			strftime(buf, sizeof(buf), "%Y%m%d-%H:%M:%S",
 			    localtime(&t));
-			logit("set \"%s\" modtime %s", name, buf);
+			logit("set \"%s\" modtime %s", name, buf); // CodeQL [SM02311]: false positive name will not be null because of handle_to_fd check
 #ifdef HAVE_FUTIMES
 			r = futimes(fd, attrib_to_tv(&a));
 #else
@@ -1081,7 +1097,7 @@ process_fsetstat(u_int32_t id)
 				status = errno_to_portable(errno);
 		}
 		if (a.flags & SSH2_FILEXFER_ATTR_UIDGID) {
-			logit("set \"%s\" owner %lu group %lu", name,
+			logit("set \"%s\" owner %lu group %lu", name, // CodeQL [SM02311]: false positive name will not be null because of handle_to_fd check
 			    (u_long)a.uid, (u_long)a.gid);
 #ifdef HAVE_FCHOWN
 			r = fchown(fd, a.uid, a.gid);
@@ -1253,7 +1269,12 @@ process_realpath(u_int32_t id)
 	}
 	debug3("request %u: realpath", id);
 	verbose("realpath \"%s\"", path);
+
+#ifdef WINDOWS
+	if (realpath(path, resolvedname) == NULL) {
+#else
 	if (sftp_realpath(path, resolvedname) == NULL) {
+#endif // WINDOWS
 		send_status(id, errno_to_portable(errno));
 	} else {
 		Stat s;
@@ -1529,7 +1550,6 @@ process_extended_limits(u_int32_t id)
 	if (getrlimit(RLIMIT_NOFILE, &rlim) != -1 && rlim.rlim_cur > 5)
 		nfiles = rlim.rlim_cur - 5; /* stdio(3) + syslog + spare */
 #endif
-
 	if ((msg = sshbuf_new()) == NULL)
 		fatal_f("sshbuf_new failed");
 	if ((r = sshbuf_put_u8(msg, SSH2_FXP_EXTENDED_REPLY)) != 0 ||
@@ -1595,7 +1615,11 @@ process_extended_expand(u_int32_t id)
 		path = npath;
 	}
 	verbose("expand \"%s\"", path);
+#ifdef WINDOWS
+	if (realpath(path, resolvedname) == NULL) {
+#else
 	if (sftp_realpath(path, resolvedname) == NULL) {
+#endif
 		send_status(id, errno_to_portable(errno));
 		goto out;
 	}
@@ -1722,6 +1746,7 @@ process_extended_home_directory(u_int32_t id)
 static void
 process_extended_get_users_groups_by_id(u_int32_t id)
 {
+#ifndef WINDOWS
 	struct passwd *user_pw;
 	struct group *gr;
 	struct sshbuf *uids, *gids, *usernames, *groupnames, *msg;
@@ -1772,6 +1797,7 @@ process_extended_get_users_groups_by_id(u_int32_t id)
 	sshbuf_free(usernames);
 	sshbuf_free(groupnames);
 	sshbuf_free(msg);
+#endif
 }
 
 static void
@@ -1884,6 +1910,42 @@ sftp_server_cleanup_exit(int i)
 	_exit(i);
 }
 
+#ifdef WINDOWS
+void
+log_handler(LogLevel level, int forced, const char* msg, void* ctx)
+{
+	#include "atomicio.h"
+	struct sshbuf* log_msg;
+	int* log_fd = (int*)ctx;
+	int r;
+	size_t len;
+
+	if (*log_fd == -1)
+		fatal_f("no log channel");
+
+	if ((log_msg = sshbuf_new()) == NULL)
+		fatal_f("sshbuf_new failed");
+
+	if ((r = sshbuf_put_u32(log_msg, 0)) != 0 || /* length; filled below */
+		(r = sshbuf_put_u32(log_msg, level)) != 0 ||
+		(r = sshbuf_put_u32(log_msg, forced)) != 0 ||
+		(r = sshbuf_put_cstring(log_msg, msg)) != 0 ||
+		(r = sshbuf_put_cstring(log_msg, __progname)) != 0 ||
+		(r = sshbuf_put_u32(log_msg, log_level)) != 0 ||
+		(r = sshbuf_put_u32(log_msg, log_facility_g)) != 0 ||
+		(r = sshbuf_put_u32(log_msg, log_stderr_g)) != 0)
+		fatal_fr(r, "assemble");
+	if ((len = sshbuf_len(log_msg)) < 4 || len > 0xffffffff)
+		fatal_f("bad length %zu", len);
+	POKE_U32(sshbuf_mutable_ptr(log_msg), len - 4);
+	if (atomicio(vwrite, *log_fd,
+		sshbuf_mutable_ptr(log_msg), len) != len)
+		fatal_f("write: %s", strerror(errno));
+	sshbuf_free(log_msg);
+
+}
+#endif
+
 static void
 sftp_server_usage(void)
 {
@@ -1985,7 +2047,18 @@ sftp_server_main(int argc, char **argv, struct passwd *user_pw)
 	}
 
 	log_init(__progname, log_level, log_facility, log_stderr);
-
+#ifdef WINDOWS
+	/*
+	 * SFTP-Server fowards log messages to SSHD System process.
+	 * SSHD system process logs the messages to either ETW or sftp-server.log.
+	 * This allows us to log the messages of both non-admin and admin users.
+	 */
+	int log_send_fd = SFTP_SERVER_LOG_FD;
+	log_facility_g = log_facility;
+	log_stderr_g = log_stderr;
+	if (fcntl(log_send_fd, F_SETFD, FD_CLOEXEC) != -1)
+		set_log_handler(log_handler, (void*)&log_send_fd);
+#endif
 	/*
 	 * On platforms where we can, avoid making /proc/self/{mem,maps}
 	 * available to the user so that sftp access doesn't automatically

@@ -210,7 +210,7 @@ static void
 assemble_algorithms(ServerOptions *o)
 {
 	char *all_cipher, *all_mac, *all_kex, *all_key, *all_sig;
-	char *def_cipher, *def_mac, *def_kex, *def_key, *def_sig;
+	char *def_cipher = NULL, *def_mac = NULL, *def_kex = NULL, *def_key = NULL, *def_sig = NULL;
 	int r;
 
 	all_cipher = cipher_alg_list(',', 0);
@@ -218,6 +218,7 @@ assemble_algorithms(ServerOptions *o)
 	all_kex = kex_alg_list(',');
 	all_key = sshkey_alg_list(0, 0, 1, ',');
 	all_sig = sshkey_alg_list(0, 1, 1, ',');
+	if (NULL == all_key || NULL == all_sig) goto fail; // fix CodeQL SM02311
 	/* remove unsupported algos from default lists */
 	def_cipher = match_filter_allowlist(KEX_SERVER_ENCRYPT, all_cipher);
 	def_mac = match_filter_allowlist(KEX_SERVER_MAC, all_mac);
@@ -237,6 +238,7 @@ assemble_algorithms(ServerOptions *o)
 	ASSEMBLE(pubkey_accepted_algos, def_key, all_key);
 	ASSEMBLE(ca_sign_algorithms, def_sig, all_sig);
 #undef ASSEMBLE
+fail:
 	free(all_cipher);
 	free(all_mac);
 	free(all_kex);
@@ -750,6 +752,7 @@ derelativise_path(const char *path)
 	if (strcasecmp(path, "none") == 0)
 		return xstrdup("none");
 	expanded = tilde_expand_filename(path, getuid());
+
 	if (path_absolute(expanded))
 		return expanded;
 	if (getcwd(cwd, sizeof(cwd)) == NULL)
@@ -1112,7 +1115,7 @@ match_cfg_line(char **condition, int line, struct connection_info *ci)
 		    ci->address ? ci->address : "(null)",
 		    ci->laddress ? ci->laddress : "(null)", ci->lport);
 
-	while ((attrib = strdelim(&cp)) && *attrib != '\0') {
+	while ((attrib = strdelim(&cp)) && *attrib != '\0') { // CodeQL [SM02311]: false positive attrib is null checked
 		/* Terminate on comment */
 		if (*attrib == '#') {
 			cp = NULL; /* mark all arguments consumed */
@@ -1146,6 +1149,7 @@ match_cfg_line(char **condition, int line, struct connection_info *ci)
 			}
 			if (ci->user == NULL)
 				match_test_missing_fatal("User", "user");
+
 			if (match_usergroup_pattern_list(ci->user, arg) != 1)
 				result = 0;
 			else
@@ -2207,6 +2211,9 @@ process_server_config_line_depth(ServerOptions *options, char *line,
 			/* requested glob was not in cache */
 			debug2("%s line %d: new include %s",
 			    filename, linenum, arg);
+#ifdef WINDOWS
+			convertToForwardslash(arg);
+#endif // WINDOWS
 			if ((r = glob(arg, 0, NULL, &gbuf)) != 0) {
 				if (r != GLOB_NOMATCH) {
 					fatal("%s line %d: include \"%s\" glob "
@@ -2420,7 +2427,11 @@ process_server_config_line_depth(ServerOptions *options, char *line,
 		charptr = &options->authorized_keys_command;
  parse_command:
 		len = strspn(str, WHITESPACE);
+#ifdef WINDOWS
+		if (!path_absolute(str + len) && strcasecmp(str + len, "none") != 0) {
+#else
 		if (str[len] != '/' && strcasecmp(str + len, "none") != 0) {
+#endif
 			fatal("%.200s line %d: %s must be an absolute path",
 			    filename, linenum, keyword);
 		}
@@ -2487,7 +2498,7 @@ process_server_config_line_depth(ServerOptions *options, char *line,
 			fatal("%s line %d: %s missing argument.",
 			    filename, linenum, keyword);
 		/* Parse mode in octal format */
-		value = strtol(arg, &p, 8);
+		value = strtol(arg, &p, 8); // CodeQL [SM02313]: strtol will initialize p
 		if (arg == p || value < 0 || value > 0777)
 			fatal("%s line %d: Invalid %s.",
 			    filename, linenum, keyword);
@@ -2890,6 +2901,61 @@ parse_server_config(ServerOptions *options, const char *filename,
 	    connectinfo, (connectinfo ? SSHCFG_MATCH_ONLY : 0), &active, 0);
 	if (!reexec)
 		process_queued_listen_addrs(options);
+
+#ifdef WINDOWS	
+	/* TODO - Refactor this into a platform specific post-read config processing routine.
+	 * TODO - support all forms of username, groupname.
+	 *   a) domain\groupname
+	 *   b) domain\groupname@hostip
+	 *   c) full_domain_name\groupname
+	 *   d) full_domain_name\groupname@hostip
+	 *   e) user@domain
+	 *   f) domain\user
+	 *   g) fulldomain\user
+	 *   h) user@domain@hostip
+	 */
+	/* convert the users, user groups to lower case */
+	char *tmp = NULL;
+	for (int i = 0; i < options->num_allow_users; i++) {
+		/* For domain user we need special handling.
+		* We support both "domain\user" and "domain/user" formats.
+		*/
+		if (tmp = strstr(options->allow_users[i], "/"))
+			*tmp = '\\';
+
+		lowercase(options->allow_users[i]);
+	}
+
+	for (int i = 0; i < options->num_deny_users; i++) {
+		/* For domain user we need special handling.
+		 * We support both "domain\user" and "domain/user" formats.
+		 */
+		if (tmp = strstr(options->deny_users[i], "/"))
+			*tmp = '\\';
+
+		lowercase(options->deny_users[i]);
+	}
+
+	for (int i = 0; i < options->num_allow_groups; i++) {
+		/* For domain group we need special handling.
+		* We support both "domain\group" and "domain/group" formats.
+		*/
+		if (tmp = strstr(options->allow_groups[i], "/"))
+			*tmp = '\\';
+
+		lowercase(options->allow_groups[i]);
+	}
+
+	for (int i = 0; i < options->num_deny_groups; i++) {
+		/* For domain group we need special handling.
+		* We support both "domain\group" and "domain/group" formats.
+		*/
+		if (tmp = strstr(options->deny_groups[i], "/"))
+			*tmp = '\\';
+
+		lowercase(options->deny_groups[i]);
+	}
+#endif // WINDOWS
 }
 
 static const char *

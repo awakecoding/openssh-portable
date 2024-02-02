@@ -178,6 +178,14 @@ match_usergroup_pattern_list(const char *string, const char *pattern)
 #ifdef HAVE_CYGWIN
 	/* Windows usernames may be Unicode and are not case sensitive */
 	return cygwin_ug_match_pattern_list(string, pattern);
+#elif WINDOWS
+	/* We support both domain/username and domain\\username format	*/
+	char *tmp = NULL;
+	if (tmp = strstr(pattern, "/"))
+		*tmp = '\\';
+
+	/* Windows usernames are case insensitive */
+	return match_pattern_list(string, pattern, 1);
 #else
 	/* Case sensitive match */
 	return match_pattern_list(string, pattern, 0);

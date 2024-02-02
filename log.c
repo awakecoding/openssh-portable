@@ -65,7 +65,12 @@ static size_t nlog_verbose;
 
 extern char *__progname;
 
+#ifdef WINDOWS
+#define LOG_SYSLOG_VIS	(VIS_CSTYLE|VIS_NL|VIS_TAB|VIS_OCTAL|VIS_LOG_UTF16)
+#else
 #define LOG_SYSLOG_VIS	(VIS_CSTYLE|VIS_NL|VIS_TAB|VIS_OCTAL)
+#endif
+
 #define LOG_STDERR_VIS	(VIS_SAFE|VIS_OCTAL)
 
 /* textual representation of log-facilities/levels */
@@ -416,7 +421,7 @@ do_log(LogLevel level, int force, const char *suffix, const char *fmt,
 		closelog_r(&sdata);
 #else
 		openlog(progname, LOG_PID, log_facility);
-		syslog(pri, "%.500s", fmtbuf);
+		syslog(pri, "%.500s", fmtbuf); // CodeQL [SM01733] false positive: not a format call
 		closelog();
 #endif
 	}

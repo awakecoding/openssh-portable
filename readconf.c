@@ -43,6 +43,7 @@
 #include <string.h>
 #include <stdarg.h>
 #include <unistd.h>
+#include <sshfileperm.h>
 #ifdef USE_SYSTEM_GLOB
 # include <glob.h>
 #else
@@ -343,6 +344,7 @@ kex_default_pk_alg(void)
 		char *all_key;
 
 		all_key = sshkey_alg_list(0, 0, 1, ',');
+		if (NULL == all_key) return NULL; // fix CodeQL SM02311
 		pkalgs = match_filter_allowlist(KEX_DEFAULT_PK_ALG, all_key);
 		free(all_key);
 	}
@@ -536,6 +538,10 @@ execute_in_shell(const char *cmd)
 	pid_t pid;
 	int status;
 
+#ifdef WINDOWS
+	return system(cmd);
+#else
+
 	if ((shell = getenv("SHELL")) == NULL)
 		shell = _PATH_BSHELL;
 
@@ -580,6 +586,7 @@ execute_in_shell(const char *cmd)
 	}
 	debug3("command returned status %d", WEXITSTATUS(status));
 	return WEXITSTATUS(status);
+#endif
 }
 
 /*
@@ -1027,13 +1034,13 @@ process_config_line_depth(Options *options, struct passwd *pw, const char *host,
 {
 	char *str, **charptr, *endofnumber, *keyword, *arg, *arg2, *p;
 	char **cpptr, ***cppptr, fwdarg[256];
-	u_int i, *uintptr, uvalue, max_entries = 0;
+	u_int *uintptr, uvalue, max_entries = 0;
 	int r, oactive, negated, opcode, *intptr, value, value2, cmdline = 0;
 	int remotefwd, dynamicfwd, ca_only = 0;
 	LogLevel *log_level_ptr;
 	SyslogFacility *log_facility_ptr;
 	long long val64;
-	size_t len;
+	size_t len, i; // fix CodeQL SM01735
 	struct Forward fwd;
 	const struct multistate *multistate_ptr;
 	struct allowed_cname *cname;
@@ -1972,6 +1979,10 @@ parse_pubkey_algos:
 			} else
 				arg2 = xstrdup(arg);
 			memset(&gl, 0, sizeof(gl));
+#ifdef WINDOWS
+			convertToForwardslash(arg2);
+#endif // WINDOWS
+
 			r = glob(arg2, GLOB_TILDE, NULL, &gl);
 			if (r == GLOB_NOMATCH) {
 				debug("%.200s line %d: include %s matched no "
@@ -2167,7 +2178,7 @@ parse_pubkey_algos:
 			goto out;
 		}
 		/* Parse mode in octal format */
-		value = strtol(arg, &endofnumber, 8);
+		value = strtol(arg, &endofnumber, 8); // CodeQL [SM02313]: strtol initializes endofnumber
 		if (arg == endofnumber || value < 0 || value > 0777) {
 			error("%.200s line %d: Bad mask.", filename, linenum);
 			goto out;
@@ -2389,7 +2400,16 @@ read_config_file_depth(const char *filename, struct passwd *pw,
 	if ((f = fopen(filename, "r")) == NULL)
 		return 0;
 
-	if (flags & SSHCONF_CHECKPERM) {
+	if (flags & SSHCONF_CHECKPERM) {		
+#if WINDOWS
+		/*
+		file permissions are designed differently on windows.
+		implementation on windows to make sure the config file is owned by a user, administrators group, or LOCALSYSTEM account
+		and nobody else except Administrators group, LOCALSYSTEM, and file owner account has the write permission
+		*/
+		if (check_secure_file_permission(filename, pw, 1) != 0)
+			fatal("Bad owner or permissions on %s", filename);
+#else
 		struct stat sb;
 
 		if (fstat(fileno(f), &sb) == -1)
@@ -2397,7 +2417,9 @@ read_config_file_depth(const char *filename, struct passwd *pw,
 		if (((sb.st_uid != 0 && sb.st_uid != getuid()) ||
 		    (sb.st_mode & 022) != 0))
 			fatal("Bad owner or permissions on %s", filename);
+#endif /* !WINDOWS */
 	}
+
 
 	debug("Reading configuration data %.200s", filename);
 
@@ -2600,7 +2622,7 @@ int
 fill_default_options(Options * options)
 {
 	char *all_cipher, *all_mac, *all_kex, *all_key, *all_sig;
-	char *def_cipher, *def_mac, *def_kex, *def_key, *def_sig;
+	char *def_cipher = NULL, *def_mac = NULL, *def_kex = NULL, *def_key = NULL, *def_sig = NULL;
 	int ret = 0, r;
 
 	if (options->forward_agent == -1)
@@ -2786,6 +2808,10 @@ fill_default_options(Options * options)
 	all_kex = kex_alg_list(',');
 	all_key = sshkey_alg_list(0, 0, 1, ',');
 	all_sig = sshkey_alg_list(0, 1, 1, ',');
+	if (NULL == all_key || NULL == all_sig) { // fix CodeQL SM02311
+		ret = SSH_ERR_INTERNAL_ERROR;
+		goto fail;
+	}
 	/* remove unsupported algos from default lists */
 	def_cipher = match_filter_allowlist(KEX_CLIENT_ENCRYPT, all_cipher);
 	def_mac = match_filter_allowlist(KEX_CLIENT_MAC, all_mac);
@@ -3422,7 +3448,7 @@ dump_client_config(Options *o, const char *host)
 	 */
 	all_key = sshkey_alg_list(0, 0, 1, ',');
 	if ((r = kex_assemble_names(&o->hostkeyalgorithms, kex_default_pk_alg(),
-	    all_key)) != 0)
+	    all_key)) != 0) // CodeQL [SM02311]: kex_assemble_names checks for NULL input
 		fatal_fr(r, "expand HostKeyAlgorithms");
 	free(all_key);
 

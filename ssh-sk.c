@@ -137,8 +137,15 @@ sshsk_open(const char *path)
 		error("provider %s is not an OpenSSH FIDO library", path);
 		goto fail;
 	}
+#ifdef WINDOWS
+	if ((ret->dlhandle = dlopen(path, RTLD_NOW)) == NULL) { // CodeQL [SM01925]: upstream code that permits user input to specify external provider is by design, but only accessible via CLI parameter
+		error("Provider \"%s\" dlopen failed: %s", path, dlerror());
+		goto fail;
+	}
+#else
 	if ((ret->dlhandle = dlopen(path, RTLD_NOW)) == NULL)
 		fatal("Provider \"%s\" dlopen failed: %s", path, dlerror());
+#endif /* WINDOWS */
 	if ((ret->sk_api_version = dlsym(ret->dlhandle,
 	    "sk_api_version")) == NULL) {
 		error("Provider \"%s\" dlsym(sk_api_version) failed: %s",
@@ -523,6 +530,8 @@ sshsk_enroll(int type, const char *provider_path, const char *device,
 		goto out;
 	} else {
 		challenge = sshbuf_ptr(challenge_buf);
+		if (challenge == NULL) // fix CodeQL SM02313
+			goto out;
 		challenge_len = sshbuf_len(challenge_buf);
 		debug3_f("using explicit challenge len=%zd", challenge_len);
 	}

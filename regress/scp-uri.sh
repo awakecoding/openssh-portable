@@ -27,38 +27,48 @@ egrep -v '^	+(Port|User)	+.*$' $OBJ/ssh_config.orig > $OBJ/ssh_config
 
 for mode in scp sftp ; do
 	tag="$tid: $mode mode"
-	if test $mode = scp ; then
-		scpopts="-O -q -S ${OBJ}/scp-ssh-wrapper.scp"
+	# scpopts should be an array to preverse the double quotes
+	if [ "$os" == "windows" ]; then
+		if test $mode = scp ; then
+			scpopts=(-O -q -S "$TEST_SHELL_PATH ${OBJ}/scp-ssh-wrapper.scp")
+		else
+			scpopts=(-s -D ${SFTPSERVER})
+		fi
 	else
-		scpopts="-s -D ${SFTPSERVER}"
+		if test $mode = scp ; then
+			scpopts="-O -q -S ${OBJ}/scp-ssh-wrapper.scp"
+		else
+			scpopts="-s -D ${SFTPSERVER}"
+		fi
 	fi
+
 	verbose "$tag: simple copy local file to remote file"
 	scpclean
-	$SCP $scpopts ${DATA} "scp://${USER}@somehost:${PORT}/${COPY}" || fail "copy failed"
+	$SCP "${scpopts[@]}" ${DATA} "scp://${USER}@somehost:${PORT}/${COPY}" || fail "copy failed"
 	cmp ${DATA} ${COPY} || fail "corrupted copy"
 
 	verbose "$tag: simple copy remote file to local file"
 	scpclean
-	$SCP $scpopts "scp://${USER}@somehost:${PORT}/${DATA}" ${COPY} || fail "copy failed"
+	$SCP "${scpopts[@]}" "scp://${USER}@somehost:${PORT}/${DATA}" ${COPY} || fail "copy failed"
 	cmp ${DATA} ${COPY} || fail "corrupted copy"
 
 	verbose "$tag: simple copy local file to remote dir"
 	scpclean
 	cp ${DATA} ${COPY}
-	$SCP $scpopts ${COPY} "scp://${USER}@somehost:${PORT}/${DIR}" || fail "copy failed"
+	$SCP "${scpopts[@]}" ${COPY} "scp://${USER}@somehost:${PORT}/${DIR}" || fail "copy failed"
 	cmp ${COPY} ${DIR}/copy || fail "corrupted copy"
 
 	verbose "$tag: simple copy remote file to local dir"
 	scpclean
 	cp ${DATA} ${COPY}
-	$SCP $scpopts "scp://${USER}@somehost:${PORT}/${COPY}" ${DIR} || fail "copy failed"
+	$SCP "${scpopts[@]}" "scp://${USER}@somehost:${PORT}/${COPY}" ${DIR} || fail "copy failed"
 	cmp ${COPY} ${DIR}/copy || fail "corrupted copy"
 
 	verbose "$tag: recursive local dir to remote dir"
 	scpclean
 	rm -rf ${DIR2}
 	cp ${DATA} ${DIR}/copy
-	$SCP $scpopts -r ${DIR} "scp://${USER}@somehost:${PORT}/${DIR2}" || fail "copy failed"
+	$SCP "${scpopts[@]}" -r ${DIR} "scp://${USER}@somehost:${PORT}/${DIR2}" || fail "copy failed"
 	for i in $(cd ${DIR} && echo *); do
 		cmp ${DIR}/$i ${DIR2}/$i || fail "corrupted copy"
 	done
@@ -67,7 +77,7 @@ for mode in scp sftp ; do
 	scpclean
 	rm -rf ${DIR2}
 	cp ${DATA} ${DIR}/copy
-	$SCP $scpopts -r "scp://${USER}@somehost:${PORT}/${DIR}" ${DIR2} || fail "copy failed"
+	$SCP "${scpopts[@]}" -r "scp://${USER}@somehost:${PORT}/${DIR}" ${DIR2} || fail "copy failed"
 	for i in $(cd ${DIR} && echo *); do
 		cmp ${DIR}/$i ${DIR2}/$i || fail "corrupted copy"
 	done

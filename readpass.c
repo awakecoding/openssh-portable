@@ -66,6 +66,36 @@ ssh_askpass(char *askpass, const char *msg, const char *env_hint)
 		return NULL;
 	}
 	osigchld = ssh_signal(SIGCHLD, SIG_DFL);
+#ifdef FORK_NOT_SUPPORTED
+	fcntl(p[0], F_SETFD, FD_CLOEXEC);
+	fcntl(p[1], F_SETFD, FD_CLOEXEC);
+	{
+		if (env_hint != NULL)
+			setenv("SSH_ASKPASS_PROMPT", env_hint, 1);
+
+		posix_spawn_file_actions_t actions;
+		pid = -1;
+		if (posix_spawn_file_actions_init(&actions) != 0 ||
+		    posix_spawn_file_actions_adddup2(&actions, p[1], STDOUT_FILENO) != 0 ) {
+			error("posix_spawn initialization failed");
+			ssh_signal(SIGCHLD, osigchld);
+			return NULL;
+		} else {
+			const char* spawn_argv[3];
+			spawn_argv[0] = askpass;
+			spawn_argv[1] = msg;
+			spawn_argv[2] = NULL;
+			if (posix_spawnp(&pid, spawn_argv[0], &actions, NULL, (char* const*) spawn_argv, NULL) != 0) {
+				posix_spawn_file_actions_destroy(&actions);
+				error("ssh_askpass: posix_spawnp: %s", strerror(errno));
+				ssh_signal(SIGCHLD, osigchld);
+				return NULL;
+			}
+			posix_spawn_file_actions_destroy(&actions);
+		}
+
+	}
+#else 
 	if ((pid = fork()) == -1) {
 		error_f("fork: %s", strerror(errno));
 		ssh_signal(SIGCHLD, osigchld);
@@ -80,6 +110,7 @@ ssh_askpass(char *askpass, const char *msg, const char *env_hint)
 		execlp(askpass, askpass, msg, (char *)NULL);
 		fatal_f("exec(%s): %s", askpass, strerror(errno));
 	}
+#endif
 	close(p[1]);
 
 	len = 0;
@@ -176,12 +207,20 @@ read_passphrase(const char *prompt, int flags)
 			askpass = getenv(SSH_ASKPASS_ENV);
 		else
 			askpass = _PATH_SSH_ASKPASS_DEFAULT;
+
+#ifdef WINDOWS
+		if (getenv(SSH_ASKPASS_ENV)) {
+#endif
 		if ((flags & RP_ASK_PERMISSION) != 0)
 			askpass_hint = "confirm";
 		if ((ret = ssh_askpass(askpass, prompt, askpass_hint)) == NULL)
 			if (!(flags & RP_ALLOW_EOF))
 				return xstrdup("");
 		return ret;
+
+#ifdef WINDOWS
+		}
+#endif
 	}
 
 	if (readpassphrase(prompt, buf, sizeof buf, rppflags) == NULL) {
@@ -279,7 +318,7 @@ notify_start(int force_askpass, const char *fmt, ...)
 			fatal_f("stdfd_devnull failed");
 		closefrom(STDERR_FILENO + 1);
 		setenv("SSH_ASKPASS_PROMPT", "none", 1); /* hint to UI */
-		execlp(askpass, askpass, prompt, (char *)NULL);
+		execlp(askpass, askpass, prompt, (char *)NULL);  // CodeQL [SM01925] false positive: Command strings are controlled by application.
 		error_f("exec(%s): %s", askpass, strerror(errno));
 		_exit(1);
 		/* NOTREACHED */

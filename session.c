@@ -94,6 +94,7 @@
 #include "monitor_wrap.h"
 #include "sftp.h"
 #include "atomicio.h"
+#include "pal_doexec.h"
 
 #if defined(KRB5) && defined(USE_AFS)
 #include <kafs.h>
@@ -116,8 +117,10 @@ void	session_set_fds(struct ssh *, Session *, int, int, int, int, int);
 void	session_pty_cleanup(Session *);
 void	session_proctitle(Session *);
 int	session_setup_x11fwd(struct ssh *, Session *);
+#ifndef WINDOWS /* !WINDOWS */
 int	do_exec_pty(struct ssh *, Session *, const char *);
 int	do_exec_no_pty(struct ssh *, Session *, const char *);
+#endif
 int	do_exec(struct ssh *, Session *, const char *);
 void	do_login(struct ssh *, Session *, const char *);
 void	do_child(struct ssh *, Session *, const char *);
@@ -379,6 +382,8 @@ xauth_valid_string(const char *s)
 }
 
 #define USE_PIPES 1
+
+#ifndef WINDOWS /* !WINDOWS */
 /*
  * This is called to fork and execute a command when we have no tty.  This
  * will call do_child from the child, and server_loop from the parent after
@@ -648,6 +653,7 @@ do_exec_pty(struct ssh *ssh, Session *s, const char *command)
 	session_set_fds(ssh, s, ptyfd, fdout, -1, 1, 1);
 	return 0;
 }
+#endif   /* !WINDOWS */
 
 /*
  * This is called to fork and execute a command.  If another command is
@@ -1315,6 +1321,15 @@ safely_chroot(const char *path, uid_t uid)
 	if (strlen(path) >= sizeof(component))
 		fatal("chroot path too long");
 
+#ifdef WINDOWS
+	/* ensure chroot path exists and is a directory */
+	if (stat(path, &st) != 0)
+		fatal("%s: stat(\"%s\"): %s", __func__,
+			path, strerror(errno));
+	if (!S_ISDIR(st.st_mode))
+		fatal("chroot path %s is not a directory",
+			path);
+#else
 	/*
 	 * Descend the path, checking that each component is a
 	 * root-owned directory with strict permissions.
@@ -1342,7 +1357,7 @@ safely_chroot(const char *path, uid_t uid)
 			    cp == NULL ? "" : "component ", component);
 
 	}
-
+#endif
 	if (chdir(path) == -1)
 		fatal("Unable to chdir to chroot path \"%s\": "
 		    "%s", path, strerror(errno));
@@ -1513,6 +1528,10 @@ child_close_fds(struct ssh *ssh)
 void
 do_child(struct ssh *ssh, Session *s, const char *command)
 {
+#ifdef WINDOWS
+	/*not called for Windows */
+	return;
+#else  /* !WINDOWS */
 	extern char **environ;
 	char **env, *argv[ARGV_MAX], remote_id[512];
 	const char *shell, *shell0;
@@ -1713,6 +1732,7 @@ do_child(struct ssh *ssh, Session *s, const char *command)
 	execve(shell, argv, env);
 	perror(shell);
 	exit(1);
+#endif   /* !WINDOWS */
 }
 
 void
@@ -1924,7 +1944,11 @@ session_pty_req(struct ssh *ssh, Session *s)
 
 	/* Allocate a pty and open it. */
 	debug("Allocating pty.");
+#ifdef WINDOWS	
+	if (!(pty_allocate(&s->ptyfd, &s->ttyfd, s->tty,
+#else
 	if (!PRIVSEP(pty_allocate(&s->ptyfd, &s->ttyfd, s->tty,
+#endif
 	    sizeof(s->tty)))) {
 		free(s->term);
 		s->term = NULL;
@@ -2729,4 +2753,23 @@ session_get_remote_name_or_ip(struct ssh *ssh, u_int utmp_size, int use_dns)
 		remote = ssh_remote_ipaddr(ssh);
 	return remote;
 }
+/*
+* Since in_chroot is static for now, create this function
+* to have unix code intact
+*/
+#ifdef WINDOWS
+int get_in_chroot()
+{
+	return in_chroot;
+}
 
+/*
+ * Since do_setup_env is static for now, create this function
+ * to have unix code intact 
+*/
+char **
+do_setup_env_proxy(struct ssh *ssh, Session *s, const char *shell)
+{
+	return do_setup_env(ssh, s, shell);
+}
+#endif

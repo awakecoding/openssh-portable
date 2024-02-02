@@ -75,6 +75,10 @@
 #include "ssh-sk.h"
 #include "sk-api.h"
 
+#ifdef WINDOWS
+#include "sshTelemetry.h"
+#endif
+
 #ifdef GSSAPI
 #include "ssh-gss.h"
 #endif
@@ -245,7 +249,7 @@ ssh_kex2(struct ssh *ssh, char *host, struct sockaddr *hostaddr, u_short port,
 	/* Expand or fill in HostkeyAlgorithms */
 	all_key = sshkey_alg_list(0, 0, 1, ',');
 	if ((r = kex_assemble_names(&options.hostkeyalgorithms,
-	    kex_default_pk_alg(), all_key)) != 0)
+	    kex_default_pk_alg(), all_key)) != 0)   // CodeQL [SM02311] false positive: kex_assemble_names handle null all_key.
 		fatal_fr(r, "kex_assemble_namelist");
 	free(all_key);
 
@@ -331,7 +335,7 @@ struct cauthctxt {
 #ifdef GSSAPI
 	/* gssapi */
 	gss_OID_set gss_supported_mechs;
-	u_int mech_tried;
+	size_t mech_tried; // fix CodeQL SM01735
 #endif
 	/* pubkey */
 	struct idlist keys;
@@ -358,7 +362,6 @@ struct cauthmethod {
 };
 
 static int input_userauth_service_accept(int, u_int32_t, struct ssh *);
-static int input_userauth_ext_info(int, u_int32_t, struct ssh *);
 static int input_userauth_success(int, u_int32_t, struct ssh *);
 static int input_userauth_failure(int, u_int32_t, struct ssh *);
 static int input_userauth_banner(int, u_int32_t, struct ssh *);
@@ -472,7 +475,7 @@ ssh_userauth2(struct ssh *ssh, const char *local_user,
 
 	ssh->authctxt = &authctxt;
 	ssh_dispatch_init(ssh, &input_userauth_error);
-	ssh_dispatch_set(ssh, SSH2_MSG_EXT_INFO, &input_userauth_ext_info);
+	ssh_dispatch_set(ssh, SSH2_MSG_EXT_INFO, kex_input_ext_info);
 	ssh_dispatch_set(ssh, SSH2_MSG_SERVICE_ACCEPT, &input_userauth_service_accept);
 	ssh_dispatch_run_fatal(ssh, DISPATCH_BLOCK, &authctxt.success);	/* loop until success */
 	pubkey_cleanup(ssh);
@@ -480,6 +483,9 @@ ssh_userauth2(struct ssh *ssh, const char *local_user,
 
 	ssh_dispatch_range(ssh, SSH2_MSG_USERAUTH_MIN, SSH2_MSG_USERAUTH_MAX, NULL);
 
+#ifdef WINDOWS
+	send_auth_telemetry(authctxt.success, authctxt.success ? authctxt.method->name : "NULL");
+#endif
 	if (!authctxt.success)
 		fatal("Authentication failed.");
 	if (ssh_packet_connection_is_on_socket(ssh)) {
@@ -521,12 +527,6 @@ input_userauth_service_accept(int type, u_int32_t seq, struct ssh *ssh)
 	r = 0;
  out:
 	return r;
-}
-
-static int
-input_userauth_ext_info(int type, u_int32_t seqnr, struct ssh *ssh)
-{
-	return kex_input_ext_info(type, seqnr, ssh);
 }
 
 void
@@ -607,6 +607,7 @@ input_userauth_success(int type, u_int32_t seq, struct ssh *ssh)
 	free(authctxt->methoddata);
 	authctxt->methoddata = NULL;
 	authctxt->success = 1;			/* break out */
+	ssh_dispatch_set(ssh, SSH2_MSG_EXT_INFO, dispatch_protocol_error);
 	return 0;
 }
 
@@ -698,22 +699,45 @@ input_userauth_pk_ok(int type, u_int32_t seq, struct ssh *ssh)
 	int r;
 
 	if (authctxt == NULL)
+#ifdef WINDOWS
+	{
+		send_pubkey_telemetry("input_userauth_pk_ok: no authentication context");
 		fatal("input_userauth_pk_ok: no authentication context");
+	}
+#else
+		fatal("input_userauth_pk_ok: no authentication context");
+#endif
 
 	if ((r = sshpkt_get_cstring(ssh, &pkalg, NULL)) != 0 ||
 	    (r = sshpkt_get_string(ssh, &pkblob, &blen)) != 0 ||
 	    (r = sshpkt_get_end(ssh)) != 0)
+#ifdef WINDOWS
+	{
+		send_pubkey_telemetry("failure");
 		goto done;
+	}
+#else
+		goto done;
+#endif
 
 	if ((pktype = sshkey_type_from_name(pkalg)) == KEY_UNSPEC) {
+#ifdef WINDOWS
+		send_pubkey_telemetry("server sent unknown pkalg");
+#endif
 		debug_f("server sent unknown pkalg %s", pkalg);
 		goto done;
 	}
 	if ((r = sshkey_from_blob(pkblob, blen, &key)) != 0) {
+#ifdef WINDOWS
+		send_pubkey_telemetry("no key from blob");
+#endif		
 		debug_r(r, "no key from blob. pkalg %s", pkalg);
 		goto done;
 	}
 	if (key->type != pktype) {
+#ifdef WINDOWS
+		send_pubkey_telemetry("type mistmatch for decoded key");
+#endif 
 		error("input_userauth_pk_ok: type mismatch "
 		    "for decoded key (received %d, expected %d)",
 		    key->type, pktype);
@@ -740,6 +764,9 @@ input_userauth_pk_ok(int type, u_int32_t seq, struct ssh *ssh)
 	}
 	ident = format_identity(id);
 	debug("Server accepts key: %s", ident);
+#ifdef WINDOWS
+	send_pubkey_telemetry("success");
+#endif
 	sent = sign_and_send_pubkey(ssh, id);
 	r = 0;
  done:
@@ -1399,6 +1426,9 @@ sign_and_send_pubkey(struct ssh *ssh, Identity *id)
 		signature = NULL;
 		if ((alg = key_sig_algorithm(fallback_sigtype ? NULL : ssh,
 		    id->key)) == NULL) {
+#ifdef WINDOWS
+			send_pubkey_sign_telemetry("no mutual signature supported");
+#endif
 			error_f("no mutual signature supported");
 			goto out;
 		}
@@ -1450,6 +1480,9 @@ sign_and_send_pubkey(struct ssh *ssh, Identity *id)
 			    loc, sshkey_type(id->key), fp);
 			continue;
 		}
+#ifdef WINDOWS
+		send_pubkey_sign_telemetry("signing failed");
+#endif
 		error_fr(r, "signing failed for %s \"%s\"%s",
 		    sshkey_type(sign_id->key), sign_id->filename,
 		    id->agent_fd != -1 ? " from agent" : "");
@@ -1477,6 +1510,9 @@ sign_and_send_pubkey(struct ssh *ssh, Identity *id)
 
 	/* success */
 	sent = 1;
+#ifdef WINDOWS
+	send_pubkey_sign_telemetry("success");
+#endif
 
  out:
 	free(fp);

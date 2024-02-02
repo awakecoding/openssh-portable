@@ -1,6 +1,12 @@
 #	$OpenBSD: connection-timeout.sh,v 1.2 2023/01/17 10:15:10 djm Exp $
 #	Placed in the Public Domain.
 
+if [ "$os" == "windows" ]; then
+	# Win32-OpenSSH does not support -oControlMaster
+	echo "skipped, multiplexing not supported on windows OS"
+	exit 0
+fi
+
 tid="unused connection timeout"
 if config_defined DISABLE_FD_PASSING ; then
        skip "not supported on this platform"

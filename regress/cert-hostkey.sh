@@ -10,6 +10,9 @@ rm -f $OBJ/cert_host_key* $OBJ/host_krl_*
 rsa=0
 types=""
 for i in `$SSH -Q key | maybe_filter_sk`; do
+	if [ "$os" == "windows" ]; then
+		i=${i/$'\r'/} # remove CR (carriage return)
+	fi
 	if [ -z "$types" ]; then
 		types="$i"
 		continue

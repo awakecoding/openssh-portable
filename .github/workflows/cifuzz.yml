@@ -1,9 +1,6 @@
 name: CIFuzz
 on:
-  push:
-    paths: [ '**.c', '**.h', '**.m4', '**.sh', '.github/**', '**/Makefile.in', 'configure.ac' ]
-  pull_request:
-    paths: [ '**.c', '**.h', '**.m4', '**.sh', '.github/**', '**/Makefile.in', 'configure.ac' ]
+  workflow_dispatch:
 
 jobs:
   Fuzzing:

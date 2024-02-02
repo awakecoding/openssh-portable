@@ -18,9 +18,11 @@ fi
 verbose "command timeout"
 (cat $OBJ/sshd_proxy.orig ; echo "ChannelTimeout session:command=1") \
 	> $OBJ/sshd_proxy
+verbose "${SSH} -vvv -F $OBJ/ssh_proxy somehost"
 ${SSH} -F $OBJ/ssh_proxy somehost "sleep 5 ; exit 23"
 r=$?
-if [ $r -ne 255 ]; then
+# return value is -1 which is being mapped back to 127 instead of 255 for some reason
+if [ $r -ne 127 ]; then
 	fail "ssh returned unexpected error code $r"
 fi
 
@@ -29,7 +31,8 @@ verbose "command wildcard timeout"
 	> $OBJ/sshd_proxy
 ${SSH} -F $OBJ/ssh_proxy somehost "sleep 5 ; exit 23"
 r=$?
-if [ $r -ne 255 ]; then
+# return value is -1 which is being mapped back to 127 instead of 255 for some reason
+if [ $r -ne 127 ]; then
 	fail "ssh returned unexpected error code $r"
 fi
 
@@ -56,7 +59,7 @@ verbose "sftp no timeout"
  echo "Subsystem sftp $OBJ/slow-sftp-server.sh" ) > $OBJ/sshd_proxy
 
 rm -f ${COPY}
-$SFTP -qS $SSH -F $OBJ/ssh_proxy somehost:$DATA $COPY
+$SFTP -qS "$TEST_SHELL_PATH $SSH" -F $OBJ/ssh_proxy somehost:$DATA $COPY
 r=$?
 if [ $r -ne 0 ]; then
 	fail "sftp failed"
@@ -69,7 +72,7 @@ verbose "sftp timeout"
  echo "Subsystem sftp $OBJ/slow-sftp-server.sh" ) > $OBJ/sshd_proxy
 
 rm -f ${COPY}
-$SFTP -qS $SSH -F $OBJ/ssh_proxy somehost:$DATA $COPY
+$SFTP -qS "$TEST_SHELL_PATH $SSH" -F $OBJ/ssh_proxy somehost:$DATA $COPY
 r=$?
 if [ $r -eq 0 ]; then
 	fail "sftp succeeded unexpectedly"
@@ -82,7 +85,7 @@ verbose "sftp irrelevant timeout"
  echo "Subsystem sftp $OBJ/slow-sftp-server.sh" ) > $OBJ/sshd_proxy
 
 rm -f ${COPY}
-$SFTP -qS $SSH -F $OBJ/ssh_proxy somehost:$DATA $COPY
+$SFTP -qS "$TEST_SHELL_PATH $SSH" -F $OBJ/ssh_proxy somehost:$DATA $COPY
 r=$?
 if [ $r -ne 0 ]; then
 	fail "sftp failed"

@@ -3,6 +3,12 @@
 
 tid="dynamic forwarding"
 
+if [ "$os" == "windows" ]; then
+	# Windows, ssh.exe -S option is not supported on windows
+	echo "skipped, not applicable on windows OS"
+	exit 0
+fi
+
 # This is a reasonable proxy for IPv6 support.
 if ! config_defined HAVE_STRUCT_IN6_ADDR ; then
 	SKIP_IPV6=yes
