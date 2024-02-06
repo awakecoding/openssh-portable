@@ -1512,6 +1512,7 @@ w32_ctime(const time_t* sourceTime)
 	return ctime_s(destTime, 26, sourceTime) == 0 ? destTime : NULL;
 }
 
+#if 0
 void
 freezero(void *ptr, size_t sz)
 {
@@ -1520,6 +1521,7 @@ freezero(void *ptr, size_t sz)
 	explicit_bzero(ptr, sz);
 	free(ptr);
 }
+#endif
 
 int 
 setenv(const char *name, const char *value, int rewrite)
